@@ -1,2 +1,6 @@
-# summarice
-A CS 180 (Machine Learning) project
+# CS 180 Summarice
+
+- Carlyne Consebido
+- Benjeouelle Lazaro
+- Raymund Klien Mañago
+- Phoebe Renee Moraca
