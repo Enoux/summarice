@@ -15,6 +15,10 @@
 		onTipUpdate: (updater: (state: Partial<TTipContainerState> | null) => void) => void;
 		colors: string[];
 		clearTextSelection: () => void;
+		/** When set, replaces default addHighlight persistence (e.g. Supabase). */
+		prepareHighlightForAdd?: (
+			h: CommentedHighlight
+		) => CommentedHighlight | Promise<CommentedHighlight>;
 
 		highlightPopup?: Snippet<[highlight: Highlight, setPinned: (flag: boolean) => void]>;
 		editHighlightPopup?: Snippet<
@@ -41,6 +45,7 @@
 		onTipUpdate,
 		colors,
 		clearTextSelection,
+		prepareHighlightForAdd,
 
 		highlightPopup = defaultHighlightPopup,
 		editHighlightPopup = defaultEditHighlightPopup,
@@ -438,8 +443,12 @@
 					height +
 					5}px; left: {clampedLeft}px; padding: 3px; visibility: {shouldBeHidden ? 'hidden' : ''};"
 			>
-				{@render newHighlightPopup(highlight, colors, (h) => {
-					let _highlight = highlightsStore.addHighlight(h as CommentedHighlight);
+				{@render newHighlightPopup(highlight, colors, async (h) => {
+					const base = h as CommentedHighlight;
+					const prepared = prepareHighlightForAdd
+						? await prepareHighlightForAdd(base)
+						: base;
+					const _highlight = highlightsStore.addHighlight(prepared);
 					pinned = true;
 					tipContainerState.clearSelection?.();
 					tipContainerState.highlight = _highlight;

@@ -98,6 +98,12 @@ export type HighlightType = 'text' | 'area';
  */
 export interface Highlight {
 	id?: string;
+	/** Per-document creation order ordinal (PRD Decision G1). */
+	ordinal?: number;
+	/** Semantic category slot 1–5; omitted or null in decorative color mode. */
+	category_slot?: number | null;
+	/** When set, render using this CSS color instead of palette[color_index]. */
+	display_color?: string;
 	/**
 	 * This property is planned to be non-optional in future.
 	 */

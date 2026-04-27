@@ -2,8 +2,8 @@ import type { PageLoad } from './$types';
 
 export const ssr = false;
 
-export const load: PageLoad = ({ params }) => {
+export const load: PageLoad = ({ data }) => {
 	return {
-		documentId: params.documentId
+		...data
 	};
 };

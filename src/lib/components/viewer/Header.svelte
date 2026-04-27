@@ -9,7 +9,18 @@
 	import { Separator } from '$lib/components/ui/separator';
 	import * as Tooltip from '$lib/components/ui/tooltip';
 	import { TooltipProvider } from '$lib/components/ui/tooltip';
-	import { PanelLeftClose, PanelLeft, PanelRightClose, PanelRight } from '@lucide/svelte';
+	import * as ToggleGroup from "$lib/components/ui/toggle-group";
+	import { 
+		PanelLeftClose, 
+		PanelLeft, 
+		PanelRightClose, 
+		PanelRight,
+		MousePointer2,
+		Hand,
+		Highlighter,
+		Square,
+		LayoutDashboard
+	} from '@lucide/svelte';
 
 	interface Props {
 		utils: Partial<PdfHighlighterUtils>;
@@ -32,6 +43,13 @@
 		sidebarOpen,
 		onSidebarOpenChange
 	}: Props = $props();
+
+	let selectedTool = $derived(utils.selectedTool || 'text_selection');
+
+	function setTool(tool: any) {
+		// @ts-ignore
+		utils.selectedTool = tool;
+	}
 </script>
 
 <TooltipProvider>
@@ -39,6 +57,26 @@
 		class="flex h-14 shrink-0 items-center gap-3 border-b border-border bg-background/95 px-3 backdrop-blur supports-backdrop-filter:bg-background/80"
 	>
 		<div class="flex min-w-0 flex-1 items-center gap-2">
+			<Tooltip.Root>
+				<Tooltip.Trigger>
+					{#snippet child({ props })}
+						<Button
+							{...props}
+							variant="ghost"
+							size="icon"
+							class="shrink-0"
+							href="/"
+							aria-label="Back to Dashboard"
+						>
+							<LayoutDashboard class="size-4" />
+						</Button>
+					{/snippet}
+				</Tooltip.Trigger>
+				<Tooltip.Content side="bottom">Back to Dashboard</Tooltip.Content>
+			</Tooltip.Root>
+
+			<Separator orientation="vertical" class="h-6" />
+
 			<Tooltip.Root>
 				<Tooltip.Trigger>
 					{#snippet child({ props })}
@@ -67,7 +105,59 @@
 
 		<Separator orientation="vertical" class="h-6" />
 
-		<div class="flex flex-wrap items-center justify-center gap-3">
+		<div class="flex items-center gap-1.5">
+			<ToggleGroup.Root
+				type="single"
+				value={selectedTool}
+				onValueChange={(v) => v && setTool(v)}
+				class="bg-muted/50 p-1 rounded-lg"
+			>
+				<Tooltip.Root>
+					<Tooltip.Trigger>
+						{#snippet child({ props })}
+							<ToggleGroup.Item value="text_selection" aria-label="Text Selection" {...props} class="size-8 p-0">
+								<MousePointer2 class="size-4" />
+							</ToggleGroup.Item>
+						{/snippet}
+					</Tooltip.Trigger>
+					<Tooltip.Content side="bottom">Text Selection</Tooltip.Content>
+				</Tooltip.Root>
+
+				<Tooltip.Root>
+					<Tooltip.Trigger>
+						{#snippet child({ props })}
+							<ToggleGroup.Item value="hand" aria-label="Hand Tool" {...props} class="size-8 p-0">
+								<Hand class="size-4" />
+							</ToggleGroup.Item>
+						{/snippet}
+					</Tooltip.Trigger>
+					<Tooltip.Content side="bottom">Hand Tool</Tooltip.Content>
+				</Tooltip.Root>
+
+				<Tooltip.Root>
+					<Tooltip.Trigger>
+						{#snippet child({ props })}
+							<ToggleGroup.Item value="highlight_pen" aria-label="Highlight Pen" {...props} class="size-8 p-0 text-yellow-500 data-[state=on]:bg-yellow-500/10">
+								<Highlighter class="size-4" />
+							</ToggleGroup.Item>
+						{/snippet}
+					</Tooltip.Trigger>
+					<Tooltip.Content side="bottom">Highlight Pen</Tooltip.Content>
+				</Tooltip.Root>
+
+				<Tooltip.Root>
+					<Tooltip.Trigger>
+						{#snippet child({ props })}
+							<ToggleGroup.Item value="area_selection" aria-label="Area Selection" {...props} class="size-8 p-0">
+								<Square class="size-4" />
+							</ToggleGroup.Item>
+						{/snippet}
+					</Tooltip.Trigger>
+					<Tooltip.Content side="bottom">Area Selection</Tooltip.Content>
+				</Tooltip.Root>
+			</ToggleGroup.Root>
+
+			<Separator orientation="vertical" class="mx-1 h-6" />
 
 			<ZoomControl {utils} />
 		</div>

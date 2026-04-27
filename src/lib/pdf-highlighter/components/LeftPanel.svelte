@@ -122,18 +122,20 @@
 	{#if isOpen}
 		<div class="flex h-full min-h-0 w-full flex-col" style:width="{width}px">
 			<div class="flex border-b border-[var(--lp-border)]">
-				<button
-					type="button"
-					class="flex flex-1 items-center justify-center gap-1.5 py-2.5 text-[13px] font-medium transition-colors"
-					class:border-b-2={activeTab === 'outline'}
-					class:border-[var(--lp-accent)]={activeTab === 'outline'}
-					class:text-[var(--lp-accent)]={activeTab === 'outline'}
-					class:text-[var(--lp-muted)]={activeTab !== 'outline'}
-					onclick={() => setTab('outline')}
-				>
-					<FileText class="size-4" />
-					Outline
-				</button>
+				{#if !outlineLoading && outline && outline.length > 0}
+					<button
+						type="button"
+						class="flex flex-1 items-center justify-center gap-1.5 py-2.5 text-[13px] font-medium transition-colors"
+						class:border-b-2={activeTab === 'outline'}
+						class:border-[var(--lp-accent)]={activeTab === 'outline'}
+						class:text-[var(--lp-accent)]={activeTab === 'outline'}
+						class:text-[var(--lp-muted)]={activeTab !== 'outline'}
+						onclick={() => setTab('outline')}
+					>
+						<FileText class="size-4" />
+						Outline
+					</button>
+				{/if}
 				<button
 					type="button"
 					class="flex flex-1 items-center justify-center gap-1.5 py-2.5 text-[13px] font-medium transition-colors"
@@ -177,20 +179,22 @@
 			>
 				<ChevronRight class="size-4" />
 			</button>
-			<button
-				type="button"
-				class="flex h-8 w-8 items-center justify-center rounded-md transition-colors"
-				class:bg-[var(--lp-hover)]={activeTab === 'outline'}
-				class:text-[var(--lp-text)]={activeTab === 'outline'}
-				class:text-[var(--lp-muted)]={activeTab !== 'outline'}
-				aria-label="Outline tab"
-				onclick={() => {
-					setTab('outline');
-					setOpen(true);
-				}}
-			>
-				<FileText class="size-4" />
-			</button>
+			{#if !outlineLoading && outline && outline.length > 0}
+				<button
+					type="button"
+					class="flex h-8 w-8 items-center justify-center rounded-md transition-colors"
+					class:bg-[var(--lp-hover)]={activeTab === 'outline'}
+					class:text-[var(--lp-text)]={activeTab === 'outline'}
+					class:text-[var(--lp-muted)]={activeTab !== 'outline'}
+					aria-label="Outline tab"
+					onclick={() => {
+						setTab('outline');
+						setOpen(true);
+					}}
+				>
+					<FileText class="size-4" />
+				</button>
+			{/if}
 			<button
 				type="button"
 				class="flex h-8 w-8 items-center justify-center rounded-md transition-colors"

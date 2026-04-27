@@ -44,6 +44,10 @@
 		onScrollAway?(): void;
 		onHighlightsRendered?(): void;
 		scaleOnResize?: boolean;
+		/** Persist new highlights (e.g. Supabase) before adding to the store. */
+		prepareHighlightForAdd?: (
+			h: ModuleCommentedHighlight
+		) => ModuleCommentedHighlight | Promise<ModuleCommentedHighlight>;
 	}
 </script>
 
@@ -140,7 +144,8 @@
 		pdfHighlighterUtils = $bindable(),
 		onScrollAway,
 		onHighlightsRendered,
-		scaleOnResize = false
+		scaleOnResize = false,
+		prepareHighlightForAdd
 	}: pdfHighlighterProps = $props();
 
 	let resolvedTheme = $derived(resolvePdfHighlighterTheme(userTheme));
@@ -470,21 +475,21 @@
 		};
 		currentHlId = null;
 		currentHlZIndex = 0;
-
-		if (pdfHighlighterUtils.selectedTool !== 'highlight_pen') {
-			tipContainerState.show = true;
-			tipContainerState.pinned = true;
-			tipContainerState.position = viewportPosition;
-			tipContainerState.highlight = selectionRef;
-
-			(pdfHighlighterUtils.setTip as TipStateUpdater)?.(tipContainerState);
-			//addGhostHighlight(selectionRef);
-		} else {
-			if (!selectionRef) return;
-			selectionRef.color_index = pdfHighlighterUtils.selectedColorIndex;
-			highlightsStore.addHighlight(selectionRef as CommentedHighlight);
+		if (!selectionRef) return;
+		const raw = {
+			...selectionRef,
+			color_index: pdfHighlighterUtils.selectedColorIndex
+		} as CommentedHighlight;
+		void (async () => {
+			const prepared = prepareHighlightForAdd ? await prepareHighlightForAdd(raw) : raw;
+			highlightsStore.addHighlight(prepared);
+			tipContainerState.show = false;
+			tipContainerState.pinned = false;
+			tipContainerState.position = null;
+			tipContainerState.highlight = null;
+			(pdfHighlighterUtils.setTip as TipStateUpdater)?.(null);
 			clearTextSelection();
-		}
+		})();
 	};
 
 	let pos = { top: 0, left: 0, x: 0, y: 0 };
@@ -717,7 +722,7 @@
 			textSelectionDelay: 1500,
 			selectedTool: 'text_selection',
 			selectedColorIndex: 0,
-			colors: ['gold', 'yellowgreen', 'seagreen', 'blueviolet'],
+			colors: ['#facc15', '#4ade80', '#60a5fa', '#f472b6', '#fb923c'],
 			scrolledTo_color: 'red',
 			highlightMixBlendMode: 'normal',
 
@@ -824,6 +829,7 @@
 			}}
 			viewer={viewerRef!}
 			colors={pdfHighlighterUtils.colors ?? []}
+			{prepareHighlightForAdd}
 			{highlightsStore}
 			{highlightPopup}
 			{editHighlightPopup}
@@ -841,16 +847,19 @@
 				disableTextSelection(viewerRef!, false);
 			}}
 			onMouseUp={() => {}}
-			onSelection={(viewportPosition, scaledPosition, image) => {
-				selectionRef = {
-					content: { image },
+			onSelection={(viewportPosition, scaledPosition, _image) => {
+				const raw: CommentedHighlight = {
+					content: {},
 					type: 'area',
 					position: scaledPosition,
 					color_index: pdfHighlighterUtils.selectedColorIndex
 				};
-				highlightsStore.addHighlight(selectionRef as CommentedHighlight);
-				//onAreaSelectionFin();
-				clearTextSelection();
+				selectionRef = raw;
+				void (async () => {
+					const prepared = prepareHighlightForAdd ? await prepareHighlightForAdd(raw) : raw;
+					highlightsStore.addHighlight(prepared);
+					clearTextSelection();
+				})();
 			}}
 		/>
 	{/if}
