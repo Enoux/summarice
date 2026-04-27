@@ -35,6 +35,13 @@ Most folders have a short README explaining what lives there. Start with `src/li
 
 SvelteKit 2 + Svelte 5 · TypeScript · Tailwind 4 · shadcn-svelte · Supabase (Postgres, Storage, Auth, pgvector, FTS) · Gemini 2.5 Flash · OpenAI text-embedding-3-small · pdf.js · Playwright.
 
+## Highlighting (Issue 04)
+
+- Text and area highlights persist to Supabase and render in the right sidebar.
+- Semantic highlighting uses fixed slots `1..5` (Key idea, Definition, Evidence, Question, Contradiction).
+- Keyboard shortcuts `1..5` set the active category slot for new highlights.
+- Decorative mode is supported via settings (highlights store `category = null` and use free colors).
+
 ## Team
 
 - Carlyne Consebido
