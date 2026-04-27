@@ -85,12 +85,13 @@
 		isDraggable = false
 	}: AreaHighlightProps = $props();
 
-	let color: string = $state('');
-	if (highlight.color_index !== undefined && highlight.color_index !== null) {
-		color = pdfHighlighterUtils.colors?.[highlight.color_index] ?? 'lightgrey';
-	} else {
-		color = pdfHighlighterUtils.colors?.[0] ?? 'yellow';
-	}
+	const color = $derived.by(() => {
+		if (highlight.display_color) return highlight.display_color;
+		if (highlight.color_index !== undefined && highlight.color_index !== null) {
+			return pdfHighlighterUtils.colors?.[highlight.color_index] ?? 'lightgrey';
+		}
+		return pdfHighlighterUtils.colors?.[0] ?? 'yellow';
+	});
 
 	let isAllowTextSelection = $state(false);
 	//let delay = pdfHighlighterUtils.textSelectionDelay;

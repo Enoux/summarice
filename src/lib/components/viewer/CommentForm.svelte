@@ -8,6 +8,9 @@
 	interface BaseProps {
 		highlight: Highlight;
 		colors: string[];
+		/** Slot labels aligned with colors[0..4] */
+		categoryLabels?: string[];
+		decorativeMode?: boolean;
 	}
 
 	interface NewProps extends BaseProps {
@@ -26,11 +29,21 @@
 
 	type Props = NewProps | EditProps;
 
-	let { highlight, colors, mode, onSave, onAdd, onDelete }: Props = $props();
+	let {
+		highlight,
+		colors,
+		categoryLabels = [],
+		decorativeMode = false,
+		mode,
+		onSave,
+		onAdd,
+		onDelete
+	}: Props = $props();
 
 	let comment = $state('');
 	let confirmDelete = $state(false);
 	let colorPick = $state('0');
+	let decorativePick = $state('#facc15');
 
 	$effect(() => {
 		void highlight.id;
@@ -38,6 +51,7 @@
 		comment = highlight.comment ?? '';
 		if (mode === 'new') {
 			colorPick = String(highlight.color_index ?? 0);
+			decorativePick = highlight.display_color ?? '#facc15';
 		}
 	});
 
@@ -47,13 +61,45 @@
 		}
 	}
 
-	function pickColor(index: number) {
-		const next = { ...highlight, color_index: index, comment: comment.trim() || undefined };
+	function pickSemanticSlot(index: number) {
+		colorPick = String(index);
+		const next = {
+			...highlight,
+			color_index: index,
+			category_slot: index + 1,
+			display_color: colors[index] ?? highlight.display_color,
+			comment: comment.trim() || undefined
+		};
 		if (mode === 'new') {
 			onAdd!(next as Highlight);
 		}
 	}
+
+	function saveDecorativeNew() {
+		const next = {
+			...highlight,
+			color_index: 0,
+			category_slot: null,
+			display_color: decorativePick,
+			comment: comment.trim() || undefined
+		};
+		if (mode === 'new') {
+			onAdd!(next as Highlight);
+		}
+	}
+
+	function onKeyNew(e: KeyboardEvent) {
+		if (mode !== 'new' || decorativeMode) return;
+		if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) return;
+		const n = e.key;
+		if (/^[1-5]$/.test(n)) {
+			e.preventDefault();
+			pickSemanticSlot(parseInt(n, 10) - 1);
+		}
+	}
 </script>
+
+<svelte:window onkeydown={onKeyNew} />
 
 <div
 	class="w-[min(100vw-2rem,360px)] rounded-md border border-border bg-popover p-3 text-popover-foreground shadow-md"
@@ -94,8 +140,22 @@
 				{/if}
 			{/if}
 		</div>
+	{:else if decorativeMode}
+		<p class="mb-2 text-xs text-muted-foreground">Pick a color, then save</p>
+		<div class="mb-3 flex items-center gap-2">
+			<input
+				type="color"
+				class="border-input size-10 cursor-pointer rounded border bg-background"
+				bind:value={decorativePick}
+			/>
+			<Button type="button" onclick={saveDecorativeNew}>Save highlight</Button>
+		</div>
 	{:else}
-		<p class="mb-2 text-xs text-muted-foreground">Pick a highlight color to save</p>
+		<p class="mb-2 text-xs text-muted-foreground">
+			Pick a category (keys <kbd class="rounded border px-1">1</kbd>–<kbd class="rounded border px-1"
+				>5</kbd
+			>)
+		</p>
 		<ToggleGroup
 			type="single"
 			bind:value={colorPick}
@@ -106,11 +166,15 @@
 			{#each colors as color, index (`${color}-${index}`)}
 				<ToggleGroupItem
 					value={String(index)}
-					aria-label="Color {index + 1}"
-					class="size-8 shrink-0 rounded-full border-2 border-transparent p-0 data-[state=on]:ring-2 data-[state=on]:ring-ring data-[state=on]:ring-offset-2 data-[state=on]:ring-offset-background"
-					style="background-color: {color}"
-					onclick={() => pickColor(index)}
-				/>
+					aria-label="{categoryLabels[index] ?? `Category ${index + 1}`}"
+					title="{index + 1}. {categoryLabels[index] ?? `Slot ${index + 1}`}"
+					class="size-auto min-h-10 shrink-0 rounded-md border-2 border-transparent px-2 py-1.5 text-left text-xs data-[state=on]:ring-2 data-[state=on]:ring-ring data-[state=on]:ring-offset-2 data-[state=on]:ring-offset-background"
+					style="background-color: {color}; color: #0a0a0a;"
+					onclick={() => pickSemanticSlot(index)}
+				>
+					<span class="font-medium">{index + 1}</span>
+					<span class="ml-1 opacity-90">{categoryLabels[index] ?? ''}</span>
+				</ToggleGroupItem>
 			{/each}
 		</ToggleGroup>
 	{/if}

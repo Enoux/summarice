@@ -34,10 +34,8 @@ export class HighlightsModel<T extends Highlight> {
 	};
 
 	public addHighlight = (highlight: T) => {
-		console.log('Saving highlight', highlight);
-		const id = this.getNextId();
-		this.highlights = [...this.highlights, { ...highlight, id: id }];
-		//this.highlights.push({ ...highlight, id: id });
+		const id = highlight.id ?? this.getNextId();
+		this.highlights = [...this.highlights, { ...highlight, id }];
 		return this.getHighlightById(id);
 	};
 
@@ -79,6 +77,11 @@ export class HighlightsModel<T extends Highlight> {
 
 	public resetHighlights = () => {
 		this.highlights = [];
+	};
+
+	/** Replace list (e.g. after navigation or server reload). */
+	public replaceAll = (items: Array<T>) => {
+		this.highlights = [...items];
 	};
 
 	public addGhostHighlight = (hl: T) => {
