@@ -71,7 +71,8 @@ export function commentedHighlightToCreatePayload(
 		p_category: category,
 		p_color: opts.colorHex,
 		p_comment: h.comment ?? null,
-		p_screenshot_path: null as string | null
+		p_screenshot_path: null as string | null,
+		p_id: h.id ?? null
 	};
 }
 
