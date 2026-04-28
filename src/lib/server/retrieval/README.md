@@ -16,5 +16,5 @@ Hybrid search across the user's library: vector + full-text, fused and diversifi
 query → embed → [vector top-k, FTS top-k] → RRF fuse → MMR diversify → ranked results
 ```
 
-Currently `.gitkeep`-only. Implementation lands in **Issues 09–11**.
+Currently `.gitkeep`-only.
 

@@ -10,5 +10,5 @@ The **AI Provider Port**. All model calls go through here — no direct `fetch()
 - Stream normalization so the rest of the app sees a uniform chunk shape regardless of provider.
 - A telemetry wrapper that writes one row to `llm_calls` per model invocation.
 
-Currently `.gitkeep`-only. Implementation lands in **Issues 05–06**.
+Currently `.gitkeep`-only.
 
