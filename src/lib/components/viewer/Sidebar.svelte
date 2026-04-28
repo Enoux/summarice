@@ -19,6 +19,10 @@
 		onPersistDelete: (h: Highlight) => Promise<void>;
 		onRecategorize: (h: Highlight, category: number | null, color: string) => Promise<void>;
 		onResetAll?: () => Promise<void>;
+		onAddAnnotation: (h: Highlight, body: string) => Promise<void>;
+		onUpdateAnnotation: (h: Highlight, id: string, body: string) => Promise<void>;
+		onDeleteAnnotation: (h: Highlight, id: string) => Promise<void>;
+		expandedHighlightId?: string | null;
 	}
 
 	let {
@@ -30,7 +34,11 @@
 		decorativeMode,
 		onPersistDelete,
 		onRecategorize,
-		onResetAll
+		onResetAll,
+		onAddAnnotation,
+		onUpdateAnnotation,
+		onDeleteAnnotation,
+		expandedHighlightId = $bindable(null)
 	}: Props = $props();
 
 	let query = $state('');
@@ -52,6 +60,7 @@
 	function jump(h: Highlight) {
 		if (h.id) {
 			location.hash = `highlight-${h.id}`;
+			expandedHighlightId = h.id;
 		}
 		onJump(h);
 	}
@@ -112,9 +121,9 @@
 >
 	<div class="flex h-full flex-col overflow-hidden">
 		<!-- Tabs Header -->
-		<div class="flex items-center justify-around border-b border-border bg-muted/30">
+		<div class="flex h-11 items-center justify-around border-b border-border bg-muted/30">
 			<button
-				class="flex flex-1 items-center justify-center gap-2 py-3 text-sm font-medium transition-colors hover:text-primary"
+				class="flex h-full flex-1 items-center justify-center gap-2 text-sm font-medium transition-colors hover:text-primary"
 				class:text-primary={activeTab === 'highlights'}
 				class:border-b-2={activeTab === 'highlights'}
 				class:border-primary={activeTab === 'highlights'}
@@ -124,7 +133,7 @@
 				Highlights
 			</button>
 			<button
-				class="flex flex-1 items-center justify-center gap-2 py-3 text-sm font-medium transition-colors hover:text-primary"
+				class="flex h-full flex-1 items-center justify-center gap-2 text-sm font-medium transition-colors hover:text-primary"
 				class:text-primary={activeTab === 'summary'}
 				class:border-b-2={activeTab === 'summary'}
 				class:border-primary={activeTab === 'summary'}
@@ -151,6 +160,11 @@
 							onRecategorize={onRecategorize}
 							{categoryLabels}
 							{decorativeMode}
+							onAddAnnotation={onAddAnnotation}
+							onUpdateAnnotation={onUpdateAnnotation}
+							onDeleteAnnotation={onDeleteAnnotation}
+							expanded={expandedHighlightId === h.id}
+							onToggleExpand={(hl) => (expandedHighlightId = expandedHighlightId === hl.id ? null : hl.id)}
 						/>
 					{:else}
 						<div class="flex flex-col items-center justify-center space-y-3 py-20 text-center">

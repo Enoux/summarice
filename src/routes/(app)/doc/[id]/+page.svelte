@@ -53,7 +53,8 @@
 	let sidebarOpen = $state(true);
 	let leftOpen = $state(true);
 	let currentPage = $state(1);
-	let sidebarWidth = $state(420);
+	let sidebarWidth = $state(300);
+	let expandedHighlightId = $state<string | null>(null);
 
 	const PdfHighlighterComponent = PdfHighlighter as unknown as Component<Record<string, unknown>>;
 
@@ -150,6 +151,40 @@
 		highlightsStore.resetHighlights();
 	}
 
+	async function addAnnotation(h: Highlight, body: string) {
+		if (!h.id) return;
+		const res = await fetch(`/doc/${docId}/annotations`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ highlight_id: h.id, body })
+		});
+		if (!res.ok) throw new Error('Failed to add annotation');
+		const newAnn = await res.json();
+		const annotations = [...(h.annotations ?? []), newAnn];
+		highlightsStore.editHighlight(h.id, { annotations } as any);
+	}
+
+	async function updateAnnotation(h: Highlight, id: string, body: string) {
+		const res = await fetch(`/doc/${docId}/annotations`, {
+			method: 'PATCH',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ id, body })
+		});
+		if (!res.ok) throw new Error('Failed to update annotation');
+		const updatedAnn = await res.json();
+		const annotations = (h.annotations ?? []).map((a) => (a.id === id ? updatedAnn : a));
+		highlightsStore.editHighlight(h.id!, { annotations } as any);
+	}
+
+	async function deleteAnnotation(h: Highlight, id: string) {
+		const res = await fetch(`/doc/${docId}/annotations?id=${encodeURIComponent(id)}`, {
+			method: 'DELETE'
+		});
+		if (!res.ok) throw new Error('Failed to delete annotation');
+		const annotations = (h.annotations ?? []).filter((a) => a.id !== id);
+		highlightsStore.editHighlight(h.id!, { annotations } as any);
+	}
+
 	function handleKeyDown(e: KeyboardEvent) {
 		const target = e.target as HTMLElement | null;
 		if (
@@ -218,18 +253,9 @@
 	});
 </script>
 
-<div class="flex h-[100dvh] w-full flex-col overflow-hidden bg-background text-foreground">
+<div class="flex h-full w-full flex-col overflow-hidden bg-background text-foreground">
 	{#if pdfUrl}
-		<Header
-			utils={pdfHighlighterUtils}
-			title={docMeta?.title}
-			pdfSource={pdfUrl}
-			highlights={highlightsStore.highlights}
-			leftPanelOpen={leftOpen}
-			onLeftPanelOpenChange={(v) => (leftOpen = v)}
-			sidebarOpen={sidebarOpen}
-			onSidebarOpenChange={(v) => (sidebarOpen = v)}
-		/>
+
 
 		<div class="flex min-h-0 flex-1 overflow-hidden">
 			<main class="relative flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
@@ -244,18 +270,36 @@
 								onOpenChange={(v) => (leftOpen = v)}
 								defaultTab={docMeta?.outline && docMeta.outline.length > 0 ? 'outline' : 'thumbnails'}
 							/>
-							<div class="relative min-h-0 min-w-0 flex-1">
-								<PdfHighlighterComponent
-									bind:pdfHighlighterUtils
-									highlightsStore={highlightsStore as HighlightsModel<CommentedHighlight>}
-									{pdfDocument}
-									{prepareHighlightForAdd}
-									theme={pdfTheme}
-									scaleOnResize
-									style=""
-									onContextMenu={() => {}}
-									onHighlightsRendered={scrollToHash}
-								>
+							<div class="flex flex-col flex-1 min-w-0 overflow-hidden">
+								<Header
+									utils={pdfHighlighterUtils}
+									pdfSource={pdfUrl}
+									highlights={highlightsStore.highlights}
+									leftPanelOpen={leftOpen}
+									onLeftPanelOpenChange={(v) => (leftOpen = v)}
+									sidebarOpen={sidebarOpen}
+									onSidebarOpenChange={(v) => (sidebarOpen = v)}
+								/>
+								<div class="relative min-h-0 min-w-0 flex-1">
+									<PdfHighlighterComponent
+										bind:pdfHighlighterUtils
+										highlightsStore={highlightsStore as HighlightsModel<CommentedHighlight>}
+										{pdfDocument}
+										{prepareHighlightForAdd}
+										theme={pdfTheme}
+										scaleOnResize
+										style=""
+										onContextMenu={() => {}}
+										onHighlightsRendered={scrollToHash}
+										onHighlightClick={(e, h) => {
+											if (h.id) {
+												expandedHighlightId = h.id;
+												sidebarOpen = true;
+												const el = document.getElementById(`highlight-${h.id}`);
+												el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+											}
+										}}
+									>
 									{#snippet highlightPopup(
 										hl: Highlight,
 										setPinned: (v: boolean) => void
@@ -301,21 +345,26 @@
 								</PdfHighlighterComponent>
 							</div>
 						</div>
+
+						<Sidebar
+								{highlightsStore}
+								onJump={(h) => pdfHighlighterUtils.scrollToHighlight?.(h)}
+								bind:isOpen={sidebarOpen}
+								bind:width={sidebarWidth}
+								categoryLabels={categoryLabelList}
+								decorativeMode={decorative}
+								onPersistDelete={persistDelete}
+								onRecategorize={persistRecategorize}
+								onResetAll={resetAllRemote}
+								onAddAnnotation={addAnnotation}
+								onUpdateAnnotation={updateAnnotation}
+								onDeleteAnnotation={deleteAnnotation}
+								bind:expandedHighlightId
+							/>
+						</div>
 					{/snippet}
 				</PdfLoader>
 			</main>
-
-			<Sidebar
-				{highlightsStore}
-				onJump={(h) => pdfHighlighterUtils.scrollToHighlight?.(h)}
-				bind:isOpen={sidebarOpen}
-				bind:width={sidebarWidth}
-				categoryLabels={categoryLabelList}
-				decorativeMode={decorative}
-				onPersistDelete={persistDelete}
-				onRecategorize={persistRecategorize}
-				onResetAll={resetAllRemote}
-			/>
 		</div>
 	{:else}
 		<div class="flex flex-1 items-center justify-center bg-muted/30">

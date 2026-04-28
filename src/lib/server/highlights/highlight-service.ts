@@ -40,7 +40,7 @@ export async function fetchHighlightsForDocument(
 ): Promise<HighlightRow[]> {
 	const { data, error } = await supabase
 		.from('highlights')
-		.select('*')
+		.select('*, annotations(*)')
 		.eq('document_id', documentId)
 		.order('ordinal', { ascending: true });
 	if (error) throw error;

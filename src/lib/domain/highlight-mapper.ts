@@ -1,4 +1,4 @@
-import type { CommentedHighlight, ScaledPosition } from '$lib/pdf-highlighter/types';
+import type { Annotation, CommentedHighlight, ScaledPosition } from '$lib/pdf-highlighter/types';
 import { DEFAULT_SLOT_HEX, type CategorySlotId } from './highlight-categories';
 
 export type HighlightRow = {
@@ -15,6 +15,7 @@ export type HighlightRow = {
 	category: number | null;
 	color: string;
 	created_at: string;
+	annotations?: Annotation[];
 };
 
 export function rowToCommentedHighlight(row: HighlightRow): CommentedHighlight {
@@ -36,7 +37,8 @@ export function rowToCommentedHighlight(row: HighlightRow): CommentedHighlight {
 		color_index: colorIndex,
 		category_slot: category === null ? null : category,
 		ordinal: row.ordinal,
-		display_color: row.color
+		display_color: row.color,
+		annotations: row.annotations
 	};
 }
 
