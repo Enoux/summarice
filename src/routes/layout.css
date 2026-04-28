@@ -116,6 +116,12 @@
 	--radius-4xl: calc(var(--radius) * 2.6);
 }
 
+@layer components {
+	.navbar-solid {
+		@apply sticky top-0 z-50 h-16 border-b bg-card shadow-[0_1px_3px_0_rgba(0,0,0,0.02),0_1px_2px_-1px_rgba(0,0,0,0.02)];
+	}
+}
+
 @layer base {
 	* {
 		@apply border-border outline-ring/50;
@@ -125,5 +131,6 @@
 	}
 	html {
 		@apply font-sans;
+		scrollbar-gutter: stable;
 	}
 }

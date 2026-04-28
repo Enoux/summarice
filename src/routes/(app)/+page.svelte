@@ -1,6 +1,5 @@
 <script lang="ts">
-	import { Button } from '$lib/components/ui/button';
-	import { Plus, Library, Search } from '@lucide/svelte';
+	import { Library, Search } from '@lucide/svelte';
 	import DropZone from '$lib/components/dashboard/DropZone.svelte';
 	import DocumentList from '$lib/components/dashboard/DocumentList.svelte';
 	import UploadProgress from '$lib/components/dashboard/UploadProgress.svelte';
