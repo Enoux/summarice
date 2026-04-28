@@ -91,6 +91,20 @@ export type Content = {
 export type HighlightType = 'text' | 'area';
 
 /**
+ * An annotation attached to a highlight (Issue 05).
+ * @category Type
+ */
+export interface Annotation {
+	id: string;
+	highlight_id: string;
+	owner_id: string;
+	body: string;
+	source: 'human' | 'ai';
+	created_at: string;
+	updated_at: string;
+}
+
+/**
  * This represents a selected (text/mouse) area that has been turned into a
  * highlight. If you are storing highlights, they should be stored as this type.
  *
@@ -121,6 +135,7 @@ export interface Highlight {
 	color_index?: number;
 	z_index?: number;
 	parent_hl_id?: string;
+	annotations?: Annotation[];
 }
 
 /**

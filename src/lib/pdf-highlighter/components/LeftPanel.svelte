@@ -121,11 +121,11 @@
 >
 	{#if isOpen}
 		<div class="flex h-full min-h-0 w-full flex-col" style:width="{width}px">
-			<div class="flex border-b border-[var(--lp-border)]">
+			<div class="flex h-11 border-b border-[var(--lp-border)] bg-muted/30">
 				{#if !outlineLoading && outline && outline.length > 0}
 					<button
 						type="button"
-						class="flex flex-1 items-center justify-center gap-1.5 py-2.5 text-[13px] font-medium transition-colors"
+						class="flex h-full flex-1 items-center justify-center gap-1.5 text-[13px] font-medium transition-colors"
 						class:border-b-2={activeTab === 'outline'}
 						class:border-[var(--lp-accent)]={activeTab === 'outline'}
 						class:text-[var(--lp-accent)]={activeTab === 'outline'}
@@ -138,7 +138,7 @@
 				{/if}
 				<button
 					type="button"
-					class="flex flex-1 items-center justify-center gap-1.5 py-2.5 text-[13px] font-medium transition-colors"
+					class="flex h-full flex-1 items-center justify-center gap-1.5 text-[13px] font-medium transition-colors"
 					class:border-b-2={activeTab === 'thumbnails'}
 					class:border-[var(--lp-accent)]={activeTab === 'thumbnails'}
 					class:text-[var(--lp-accent)]={activeTab === 'thumbnails'}

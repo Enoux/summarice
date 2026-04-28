@@ -37,7 +37,7 @@
 	ondragleave={handleDragLeave}
 	ondrop={handleDrop}
 	class={cn(
-		'relative flex flex-col items-center justify-center rounded-xl border-2 border-dashed transition-all duration-200',
+		'relative flex flex-col items-center justify-center rounded-xl border-2 border-dashed transition-all duration-200 py-25',
 		isDragging ? 'border-primary bg-primary/5 scale-[1.01]' : 'border-muted bg-card hover:border-muted-foreground/50',
 		className
 	)}

@@ -57,13 +57,11 @@
 <Tooltip.Root>
 	<Tooltip.Trigger>
 		{#snippet child({ props })}
-			<Button {...props} disabled={busy} onclick={runExport} variant="default" class="min-w-0">
+			<Button {...props} disabled={busy} onclick={runExport} variant="ghost" size="icon" class="h-8 w-8 shrink-0">
 				{#if busy}
 					<Loader2 class="size-4 shrink-0 animate-spin" />
-					<span class="truncate">{progress || 'Exporting…'}</span>
 				{:else}
 					<Download class="size-4 shrink-0" />
-					Export PDF
 				{/if}
 			</Button>
 		{/snippet}
