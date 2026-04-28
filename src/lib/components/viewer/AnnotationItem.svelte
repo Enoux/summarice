@@ -47,7 +47,7 @@
 
 <div
 	class={cn(
-		'group relative rounded-md p-2 text-sm transition-colors',
+		'group relative rounded-md p-2 text-sm transition-colors select-none',
 		annotation.source === 'ai' ? 'bg-primary/5 border border-primary/10' : 'bg-muted/30'
 	)}
 >
