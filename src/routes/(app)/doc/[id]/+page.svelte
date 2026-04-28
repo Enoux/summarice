@@ -12,6 +12,7 @@
 	import pdfWorkerUrl from '$lib/pdf-worker-url';
 	import Header from '$lib/components/viewer/Header.svelte';
 	import Sidebar from '$lib/components/viewer/Sidebar.svelte';
+	import ViewerSkeleton from '$lib/components/viewer/ViewerSkeleton.svelte';
 	import CommentPopup from '$lib/components/viewer/CommentPopup.svelte';
 	import CommentForm from '$lib/components/viewer/CommentForm.svelte';
 	import { mode } from 'mode-watcher';
@@ -260,6 +261,13 @@
 		<div class="flex min-h-0 flex-1 overflow-hidden">
 			<main class="relative flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
 				<PdfLoader document={pdfUrl} workerSrc={pdfWorkerUrl}>
+					{#snippet beforeLoad(progress)}
+						<ViewerSkeleton
+							progress={progress.total > 0 ? (progress.loaded / progress.total) * 100 : 10}
+							{leftOpen}
+							{sidebarOpen}
+						/>
+					{/snippet}
 					{#snippet pdfHighlighterWrapper(pdfDocument)}
 						<div class="flex h-full min-w-0 flex-1 overflow-hidden">
 							<LeftPanel
@@ -279,6 +287,8 @@
 									onLeftPanelOpenChange={(v) => (leftOpen = v)}
 									sidebarOpen={sidebarOpen}
 									onSidebarOpenChange={(v) => (sidebarOpen = v)}
+									categoryLabels={categoryLabelList}
+									decorative={decorative}
 								/>
 								<div class="relative min-h-0 min-w-0 flex-1">
 									<PdfHighlighterComponent
@@ -367,13 +377,6 @@
 			</main>
 		</div>
 	{:else}
-		<div class="flex flex-1 items-center justify-center bg-muted/30">
-			<div class="flex flex-col items-center space-y-4">
-				<div
-					class="h-12 w-12 animate-spin rounded-full border-4 border-primary border-t-transparent"
-				></div>
-				<p class="text-sm font-medium text-muted-foreground">Loading document...</p>
-			</div>
-		</div>
+		<ViewerSkeleton {leftOpen} {sidebarOpen} progress={0} />
 	{/if}
 </div>

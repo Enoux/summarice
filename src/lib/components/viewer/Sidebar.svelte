@@ -8,6 +8,9 @@
 	import { ScrollArea } from '$lib/components/ui/scroll-area/index.js';
 	import { Separator } from '$lib/components/ui/separator/index.js';
 	import { onMount } from 'svelte';
+	import { PUBLIC_MOCK_COMPONENTS } from '$env/static/public';
+	import MockSummary from './MockSummary.svelte';
+	import Summary from './Summary.svelte';
 
 	interface Props {
 		highlightsStore: HighlightsModel<Highlight>;
@@ -114,7 +117,7 @@
 {/if}
 
 <aside
-	class="flex h-full shrink-0 flex-col border-l border-border bg-card transition-[width] duration-300"
+	class="flex h-full shrink-0 select-none flex-col border-l border-border bg-card transition-[width] duration-300"
 	class:hidden={!isOpen}
 	style:width="{width}px"
 	aria-label="Sidebar"
@@ -198,19 +201,11 @@
 				</div>
 			{/if}
 		{:else}
-			<div class="flex flex-1 flex-col items-center justify-center space-y-4 p-6 text-center">
-				<div class="rounded-full bg-muted p-5">
-					<MessageSquare class="text-muted-foreground/30 size-10" />
-				</div>
-				<div class="space-y-2">
-					<h3 class="text-lg font-semibold">Generate Summary</h3>
-					<p class="text-muted-foreground max-w-[240px] text-sm">
-						Summarice can organize your highlights into a structured document. Add some highlights
-						first!
-					</p>
-				</div>
-				<Button variant="secondary" disabled class="mt-4">Generate (Coming soon)</Button>
-			</div>
+			{#if PUBLIC_MOCK_COMPONENTS === 'true'}
+				<MockSummary />
+			{:else}
+				<Summary />
+			{/if}
 		{/if}
 	</div>
 </aside>
