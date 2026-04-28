@@ -3,6 +3,7 @@
 	import { ModeWatcher } from 'mode-watcher';
 	import { onMount } from 'svelte';
 	import { invalidate } from '$app/navigation';
+	import { Toaster } from 'svelte-sonner';
 
 	const { children, data } = $props();
 	const { supabase, session } = $derived(data);
@@ -21,4 +22,5 @@
 </script>
 
 <ModeWatcher />
+<Toaster richColors position="bottom-right" />
 {@render children()}
