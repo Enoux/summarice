@@ -28,7 +28,7 @@ html
 }
 
 .textLayer ::selection {
-	mix-blend-mode: multiply;
+	background: rgba(131, 181, 255);
 }
 
 @media all and (-ms-high-contrast: none), (-ms-high-contrast: active) {

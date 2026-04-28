@@ -475,7 +475,10 @@
 		};
 		currentHlId = null;
 		currentHlZIndex = 0;
-		if (!selectionRef) return;
+		if (pdfHighlighterUtils.selectedTool !== 'highlight_pen') {
+			return;
+		}
+
 		const raw = {
 			...selectionRef,
 			color_index: pdfHighlighterUtils.selectedColorIndex
