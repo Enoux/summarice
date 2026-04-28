@@ -40,7 +40,7 @@ export const load: PageServerLoad = async ({ params, locals: { supabase, user } 
 		let storageData: { signedUrl: string } | null = null;
 		let storageError: { message?: string } | null = null;
 		try {
-			const result = await supabase.storage.from('documents').createSignedUrl(storagePath, 3600); // 1 hour expiry
+			const result = await supabase.storage.from('documents').createSignedUrl(storagePath, 43200); // 12 hour expiry
 			storageData = result.data as { signedUrl: string } | null;
 			storageError = result.error as { message?: string } | null;
 		} catch (e) {

@@ -166,8 +166,8 @@
 							onAddAnnotation={onAddAnnotation}
 							onUpdateAnnotation={onUpdateAnnotation}
 							onDeleteAnnotation={onDeleteAnnotation}
-							expanded={expandedHighlightId === h.id}
-							onToggleExpand={(hl) => (expandedHighlightId = expandedHighlightId === hl.id ? null : hl.id)}
+							expanded={expandedHighlightId === (h.id ?? null)}
+							onToggleExpand={(hl) => (expandedHighlightId = expandedHighlightId === (hl.id ?? null) ? null : (hl.id ?? null))}
 						/>
 					{:else}
 						<div class="flex flex-col items-center justify-center space-y-3 py-20 text-center">

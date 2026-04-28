@@ -7,6 +7,7 @@
 		LeftPanel,
 		type CommentedHighlight,
 		type Highlight,
+		type ViewportHighlight,
 		type PdfHighlighterUtils
 	} from '$lib/pdf-highlighter';
 	import pdfWorkerUrl from '$lib/pdf-worker-url';
@@ -24,6 +25,7 @@
 		paletteFromSettings
 	} from '$lib/domain/highlight-categories';
 	import { hexForNewHighlight } from '$lib/domain/highlight-mapper';
+	import { toast } from 'svelte-sonner';
 
 	const docMeta = $derived(data?.document);
 	const pdfUrl = $derived(data?.pdfUrl);
@@ -87,23 +89,46 @@
 		}
 	}
 
-	async function prepareHighlightForAdd(h: CommentedHighlight) {
+	function prepareHighlightForAdd(h: CommentedHighlight) {
+		const id = crypto.randomUUID();
 		const hex = hexForNewHighlight(h, {
 			decorative,
 			decorativeDefaultHex: data?.userSettings?.decorativeDefaultColor ?? '#facc15',
 			slotHexByIndex: [...slotHexList]
 		});
-		const res = await fetch(`/doc/${docId}/highlights`, {
+
+		const nextOrdinal =
+			highlightsStore.highlights.reduce((max, hl) => Math.max(max, hl.ordinal ?? 0), 0) + 1;
+		const categorySlot = decorative ? null : Math.min(Math.max((h.color_index ?? 0) + 1, 1), 5);
+
+		const optimistic: CommentedHighlight = {
+			...h,
+			id,
+			display_color: hex,
+			category_slot: categorySlot as CommentedHighlight['category_slot'],
+			ordinal: nextOrdinal,
+			annotations: h.annotations ?? []
+		};
+
+		fetch(`/doc/${docId}/highlights`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({
-				highlight: JSON.parse(JSON.stringify(h)) as CommentedHighlight,
+				highlight: optimistic,
 				decorative,
 				colorHex: hex
 			})
-		});
-		if (!res.ok) throw new Error(await res.text());
-		return (await res.json()) as CommentedHighlight;
+		})
+			.then(async (res) => {
+				if (!res.ok) throw new Error(await res.text());
+			})
+			.catch((err) => {
+				console.error('Failed to persist highlight:', err);
+				highlightsStore.deleteHighlight(optimistic);
+				toast.error('Highlight could not be saved. Please try again.');
+			});
+
+		return optimistic;
 	}
 
 	async function persistDelete(h: Highlight) {
@@ -301,7 +326,7 @@
 										style=""
 										onContextMenu={() => {}}
 										onHighlightsRendered={scrollToHash}
-										onHighlightClick={(e, h) => {
+										onHighlightClick={(e: MouseEvent, h: ViewportHighlight<CommentedHighlight>) => {
 											if (h.id) {
 												expandedHighlightId = h.id;
 												sidebarOpen = true;
