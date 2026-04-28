@@ -14,5 +14,3 @@ Supabase clients and **RLS-safe repositories**. The only place in the app that t
 - Routes and other `server/*` modules call repositories — never the Supabase client directly.
 - Every read/write assumes RLS is on. If you need to bypass it, document why in a comment.
 
-Currently `.gitkeep`-only. Foundation lands in **Issue 01**.
-

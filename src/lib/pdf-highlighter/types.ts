@@ -91,7 +91,7 @@ export type Content = {
 export type HighlightType = 'text' | 'area';
 
 /**
- * An annotation attached to a highlight (Issue 05).
+ * An annotation attached to a highlight.
  * @category Type
  */
 export interface Annotation {

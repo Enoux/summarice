@@ -4,17 +4,18 @@ Server-only code. Anything in this folder is **never bundled into the browser** 
 
 ## Modules
 
-Each subfolder is a technical module. Most are `.gitkeep`-only today.
+Each subfolder represents a technical module of the backend.
 
 | Folder        | Purpose                                                                |
 |---------------|------------------------------------------------------------------------|
 | `supabase/`   | Supabase clients, RLS-safe repositories, SQL helpers                   |
+| `highlights/` | Highlight CRUD, semantic mapping, and persistence                      |
 | `ingestion/`  | PDF upload pipeline: text extraction, outline, density scan            |
-| `ai/`         | AI Provider Port, prompts, stream normalization (Gemini, OpenAI)       |
+| `ai/`         | AI Provider Port, prompts, stream normalization (Gemini 3 Flash)       |
 | `summary/`    | Summary generator: prompts, citation validation                        |
 | `retrieval/`  | Hybrid search: vector + FTS, RRF fusion, MMR diversification           |
 | `figures/`    | Figure interpreter (Nice tier)                                         |
-| `env.ts`      | Zod-validated server env. Boot fails fast if a required var is missing | —      |
+| `env.ts`      | Zod-validated server env. Boot fails fast if a required var is missing |
 
 ## Conventions
 

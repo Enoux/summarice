@@ -45,7 +45,7 @@ create policy "Users can delete own highlight embeddings"
   );
 
 -- highlight_id nullable: ON DELETE SET NULL when the cited highlight is removed (Decision F4, #08).
--- RLS: no policies yet — default deny for authenticated; issue #08 adds policies when summaries and writes land.
+-- RLS: no policies yet — default deny for authenticated; adds policies when summaries and writes land.
 create table public.summary_citations (
   id uuid primary key default gen_random_uuid(),
   highlight_id uuid references public.highlights (id) on delete set null,

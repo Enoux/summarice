@@ -9,5 +9,7 @@ Summary generator. Produces a versioned, citation-bearing markdown summary for a
 - Citation ordinal **whitelist validation** — the model can only cite ordinals from the highlight set we sent it; out-of-range citations are rejected (uses `lib/citations/` for parsing).
 - Versioning logic: each generation produces a new row in `summaries`, with `summary_citations` linking to the source highlights.
 
-Currently `.gitkeep`-only. Implementation lands in **Issue 07**.
+## Status
+
+Implementation is in progress. Current work includes `highlight-prompt-context.ts` for assembling relevant context for the summary.
 

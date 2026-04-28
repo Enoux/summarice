@@ -2,19 +2,18 @@
 
 PDF upload pipeline. Turns a raw PDF into rows the rest of the app can use.
 
-## What goes here
+## Current Status
 
-- File upload handler: persist PDF to Supabase Storage under a user-scoped path.
-- Page text extraction (via `pdf-lib` or `pdfjs-dist`).
+The core ingestion logic is currently implemented in `$lib/ingestion/index.ts`. It handles:
+- File upload to Supabase Storage.
+- Page text extraction via `pdfjs-dist`.
 - Outline extraction (table of contents).
-- **Text-density scan** — reject scanned PDFs that are mostly image with no extractable text.
-- Writes to `documents` and `document_pages` tables.
+- **Text-density scan** — rejects scanned PDFs that are mostly image.
+- Database persistence via the `ingest_document` RPC.
 
-## Flow
+## Future Plans
 
-```
-upload → store file → extract text + outline → density scan → write rows → ready
-```
-
-Currently `.gitkeep`-only.
+- Server-side OCR for scanned PDFs.
+- More robust metadata extraction.
+- Automatic document classification.
 

@@ -13,7 +13,6 @@ export type HighlightPromptContext =
 
 /**
  * Assembles the user-facing instruction block for future summary / AI prompts
- * (Issue 04 — no model calls yet; contract is unit-tested).
  */
 export function buildHighlightPromptContext(opts: {
 	categoryLabels?: unknown;

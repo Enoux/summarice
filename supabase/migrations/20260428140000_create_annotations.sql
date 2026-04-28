@@ -1,4 +1,4 @@
--- Create annotations table (Issue 05)
+-- Create annotations table
 create table public.annotations (
   id uuid primary key default gen_random_uuid(),
   highlight_id uuid not null references public.highlights (id) on delete cascade,

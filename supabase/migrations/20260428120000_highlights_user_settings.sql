@@ -1,4 +1,4 @@
--- Highlights + per-user settings (Issue 04). Area screenshot storage deferred (#19).
+-- Highlights + per-user settings. Area screenshot storage deferred (#19).
 
 create table public.user_settings (
   id uuid primary key references auth.users (id) on delete cascade,
