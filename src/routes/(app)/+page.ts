@@ -1,4 +1,4 @@
-import type { PageLoad } from './(dashboard)/$types';
+import type { PageLoad } from './$types';
 
 export const load: PageLoad = async ({ parent }) => {
 	const { supabase, session } = await parent();

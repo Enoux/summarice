@@ -95,6 +95,7 @@
 						variant="outline"
 						size="sm"
 						class="h-8 w-full justify-center gap-2 bg-background text-[11px] font-medium shadow-xs hover:bg-accent rounded-lg border-muted-foreground/20"
+						href="/settings"
 					>
 						<Settings class="size-3" />
 						Configure
