@@ -14,10 +14,10 @@
 		<div class="mx-auto flex h-full w-full items-center justify-between">
 			<!-- Left: Logo & Breadcrumb -->
 			<div class="flex items-center gap-2 pl-2.5">
-				<a href="/" class="flex items-center gap-2 hover:opacity-80 transition-opacity">
-					<Command class="h-3.5 w-3.5 text-muted-foreground" />
+				<a href="/" class="flex items-center gap-2 text-muted-foreground/80 hover:text-foreground transition-colors">
+					<Command class="h-3.5 w-3.5" />
 					{#if !page.url.pathname.startsWith('/doc')}
-						<span class="text-sm font-bold text-foreground">Summarice</span>
+						<span class="text-foreground text-sm font-bold">Summarice</span>
 					{/if}
 				</a>
 				
