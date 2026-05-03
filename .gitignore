@@ -24,3 +24,7 @@ vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 # Playwright
 test-results
+
+# AI Agents
+.claude/
+.codex/

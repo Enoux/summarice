@@ -74,6 +74,7 @@
 	],
 	"dependencies": {
 		"@internationalized/date": "^3.12.1",
+		"@llamaindex/liteparse": "^1.5.3",
 		"@supabase/ssr": "^0.10.2",
 		"@supabase/supabase-js": "^2.105.0",
 		"bits-ui": "^2.18.0",
