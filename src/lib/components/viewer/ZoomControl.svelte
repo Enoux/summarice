@@ -4,6 +4,14 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Slider } from '$lib/components/ui/slider';
 	import * as Tooltip from '$lib/components/ui/tooltip';
+	import {
+		MAX_ZOOM_SCALE,
+		MIN_ZOOM_SCALE,
+		ZOOM_STEP,
+		normalizeZoomScale,
+		zoomIn,
+		zoomOut
+	} from '$lib/pdf-highlighter/lib/zoom';
 
 	interface Props {
 		utils: Partial<PdfHighlighterUtils>;
@@ -14,14 +22,13 @@
 	const scale = $derived.by(() => {
 		const s = utils.currentScale;
 		if (typeof s === 'number' && !Number.isNaN(s)) {
-			return Math.min(3, Math.max(0.5, s));
+			return normalizeZoomScale(s);
 		}
 		return 1;
 	});
 
 	function applyZoom(v: number) {
-		const rounded = Math.round(v * 10) / 10;
-		utils.setCurrentScaleValue?.(rounded);
+		utils.setCurrentScaleValue?.(normalizeZoomScale(v));
 	}
 </script>
 
@@ -35,7 +42,7 @@
 					size="icon"
 					class="size-8"
 					aria-label="Zoom out"
-					onclick={() => applyZoom(Math.max(0.5, scale - 0.1))}
+					onclick={() => applyZoom(zoomOut(scale))}
 				>
 					<ZoomOut class="size-4" />
 				</Button>
@@ -44,9 +51,9 @@
 		<Tooltip.Content side="bottom">Zoom out</Tooltip.Content>
 	</Tooltip.Root>
 	<Slider
-		min={0.5}
-		max={3}
-		step={0.05}
+		min={MIN_ZOOM_SCALE}
+		max={MAX_ZOOM_SCALE}
+		step={ZOOM_STEP}
 		value={scale}
 		onValueChange={applyZoom}
 		aria-label="Zoom"
@@ -61,7 +68,7 @@
 					size="icon"
 					class="size-8"
 					aria-label="Zoom in"
-					onclick={() => applyZoom(Math.min(3, scale + 0.1))}
+					onclick={() => applyZoom(zoomIn(scale))}
 				>
 					<ZoomIn class="size-4" />
 				</Button>

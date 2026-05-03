@@ -24,7 +24,7 @@
 		if (!file) return;
 
 		try {
-			await ingest(file, supabase, (p) => {
+			await ingest(file, (p) => {
 				ingestionProgress = p;
 			});
 			

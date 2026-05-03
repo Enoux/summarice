@@ -1,28 +1,33 @@
 <script lang="ts">
-	import type { Highlight } from '$lib/pdf-highlighter/types';
-	import { FileText, ImageIcon, Trash2 } from '@lucide/svelte';
+	import type { CommentedHighlight } from '$lib/pdf-highlighter/types';
+	import { Trash2, ChevronDown, ExternalLink, MessageSquare } from '@lucide/svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
-	import { DEFAULT_SLOT_HEX, type CategorySlotId } from '$lib/domain/highlight-categories';
+	import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
+	import {
+		DEFAULT_SLOT_HEX,
+		type CategorySlotId,
+		CATEGORY_SLOT_IDS
+	} from '$lib/domain/highlight-categories';
 	import AnnotationList from './AnnotationList.svelte';
 	import { cn } from '$lib/utils';
 
 	interface Props {
-		highlight: Highlight;
-		onJump: (h: Highlight) => void;
-		onDelete: (h: Highlight) => void;
-		onRecategorize?: (h: Highlight, category: number | null, color: string) => void;
+		highlight: CommentedHighlight;
+		onSelect: (h: CommentedHighlight) => void;
+		onDelete: (h: CommentedHighlight) => void;
+		onRecategorize?: (h: CommentedHighlight, category: number | null, color: string) => void;
 		categoryLabels: string[];
 		decorativeMode: boolean;
-		onAddAnnotation: (h: Highlight, body: string) => Promise<void>;
-		onUpdateAnnotation: (h: Highlight, id: string, body: string) => Promise<void>;
-		onDeleteAnnotation: (h: Highlight, id: string) => Promise<void>;
-		expanded?: boolean;
-		onToggleExpand?: (h: Highlight) => void;
+		onAddAnnotation: (h: CommentedHighlight, body: string) => Promise<void>;
+		onUpdateAnnotation: (h: CommentedHighlight, id: string, body: string) => Promise<void>;
+		onDeleteAnnotation: (h: CommentedHighlight, id: string) => Promise<void>;
+		selected?: boolean;
+		onHover?: (id: string | null) => void;
 	}
 
 	let {
 		highlight,
-		onJump,
+		onSelect,
 		onDelete,
 		onRecategorize,
 		categoryLabels,
@@ -30,34 +35,46 @@
 		onAddAnnotation,
 		onUpdateAnnotation,
 		onDeleteAnnotation,
-		expanded = false,
-		onToggleExpand
+		selected = false,
+		onHover
 	}: Props = $props();
 
 	const page = $derived(highlight.position?.boundingRect.pageNumber ?? '—');
+	const fullText = $derived(highlight.content?.text ?? '');
 	const excerpt = $derived(
-		highlight.type === 'area' ? 'Area highlight' : (highlight.content?.text ?? '').slice(0, 120)
+		highlight.type === 'area'
+			? 'Area highlight'
+			: fullText.length > 120
+				? fullText.slice(0, 120) + '...'
+				: fullText
 	);
+	const isLongText = $derived(highlight.type === 'text' && fullText.length > 120);
+	const commentText = $derived(highlight.comment?.trim() ?? '');
+	const isLongComment = $derived(commentText.length > 120);
 	const ord = $derived(highlight.ordinal ?? '—');
+	const annotationCount = $derived(highlight.annotations?.length ?? 0);
 
-	let recat = $state(String(highlight.category_slot ?? 1));
+	let isTextExpanded = $state(false);
+	let isCommentExpanded = $state(false);
 	let decoColor = $state(highlight.display_color ?? '#facc15');
 
 	$effect(() => {
 		void highlight.id;
-		recat = String(highlight.category_slot ?? 1);
 		decoColor = highlight.display_color ?? '#facc15';
 	});
 
-	function applyRecategory() {
+	function handleRecategorize(slot: number) {
 		if (!onRecategorize || !highlight.id) return;
-		if (decorativeMode) {
-			onRecategorize(highlight, null, decoColor);
-			return;
+		const categorySlot = slot as CategorySlotId;
+		const hex = DEFAULT_SLOT_HEX[categorySlot];
+		onRecategorize(highlight, categorySlot, hex);
+	}
+
+	function handleColorChange(e: Event) {
+		const target = e.target as HTMLInputElement;
+		if (onRecategorize && highlight.id) {
+			onRecategorize(highlight, null, target.value);
 		}
-		const slot = parseInt(recat, 10) as CategorySlotId;
-		const hex = DEFAULT_SLOT_HEX[slot];
-		onRecategorize(highlight, slot, hex);
 	}
 
 	const badgeLabel = $derived.by(() => {
@@ -66,98 +83,275 @@
 		if (s == null) return '—';
 		return categoryLabels[s - 1] ?? `Slot ${s}`;
 	});
+
+	function handleSelect(e?: MouseEvent) {
+		onSelect(highlight);
+	}
+
+	function toggleTextExpansion(e: MouseEvent) {
+		e.stopPropagation();
+		isTextExpanded = !isTextExpanded;
+	}
+
+	function toggleCommentExpansion(e: MouseEvent) {
+		e.stopPropagation();
+		isCommentExpanded = !isCommentExpanded;
+	}
+
+	function handleCardKeydown(e: KeyboardEvent) {
+		if (e.key !== 'Enter' && e.key !== ' ') return;
+		e.preventDefault();
+		handleSelect();
+	}
 </script>
 
 <div
-	id="highlight-{highlight.id}"
+	id="sidebar-highlight-{highlight.id}"
 	class={cn(
-		"flex flex-col gap-2 rounded-lg border border-border p-2 text-sm transition-all",
-		expanded ? "bg-accent/30 ring-1 ring-border shadow-sm" : "hover:bg-accent/50"
+		'group flex flex-col rounded-xl border border-border transition-all duration-200 bg-muted/40 overflow-hidden cursor-pointer',
+		selected ? 'shadow-md ring-1 ring-border' : 'hover:shadow-sm'
 	)}
-	role="listitem"
+	role="option"
+	aria-selected={selected}
+	tabindex="0"
+	onclick={handleSelect}
+	onkeydown={handleCardKeydown}
+	onmouseenter={() => onHover?.(highlight.id ?? null)}
+	onmouseleave={() => onHover?.(null)}
 >
-	<div class="flex gap-2">
-		<button
-			type="button"
-			class="flex min-w-0 flex-1 flex-col gap-1 text-left"
-			onclick={() => onToggleExpand ? onToggleExpand(highlight) : onJump(highlight)}
-		>
-			<div class="flex flex-wrap items-center gap-2">
-				<span
-					class="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground tabular-nums"
-				>
-					[^{ord}] p.{page}
-				</span>
-				<span
-					class="rounded px-1.5 py-0.5 text-[10px] font-medium text-foreground"
-					style="background-color: {highlight.display_color ?? 'var(--muted)'}; color: #111;"
-				>
-					{badgeLabel}
-				</span>
-				{#if highlight.type === 'text'}
-					<FileText class="size-3.5 text-muted-foreground" />
+	<!-- Section 1: Context & Source (Floating/Lighter BG) -->
+	<div
+		class={cn(
+			'flex flex-col gap-2 p-3 border-b border-border transition-colors',
+			selected ? 'bg-accent/40' : 'bg-card hover:bg-accent/20'
+		)}
+	>
+		<div class="flex min-w-0 flex-1 flex-col gap-2">
+			<!-- Header Metadata & Actions -->
+			<div class="flex items-center justify-between gap-2">
+				<div class="flex flex-wrap items-center gap-2">
+					<span
+						class="rounded-full bg-muted/80 px-2 py-0.5 text-[10px] font-semibold tracking-wider text-muted-foreground uppercase tabular-nums"
+					>
+						{ord}. P.{page}
+					</span>
+
+					<!-- Semantic Dropdown Chip -->
+					{#if onRecategorize}
+						{#if decorativeMode}
+							<div class="relative flex items-center">
+								<input
+									type="color"
+									class="size-5 cursor-pointer rounded-full border-none bg-transparent p-0"
+									bind:value={decoColor}
+									oninput={handleColorChange}
+									onclick={(e) => e.stopPropagation()}
+									aria-label="Highlight color"
+								/>
+								<span class="ml-1.5 text-[10px] font-medium text-muted-foreground">{badgeLabel}</span>
+							</div>
+						{:else}
+							<DropdownMenu.Root>
+								<DropdownMenu.Trigger>
+									{#snippet child({ props })}
+										<Button
+											{...props}
+											variant="ghost"
+											size="xs"
+											class="h-auto rounded-full px-2 py-0.5 text-[10px] font-medium transition-all hover:brightness-95 active:scale-95 "
+											style="background-color: {highlight.display_color ??
+												'var(--muted)'}; color: #111;"
+											onclick={(e) => e.stopPropagation()}
+										>
+											{badgeLabel}
+											<ChevronDown class="ml-1 size-3" />
+										</Button>
+									{/snippet}
+								</DropdownMenu.Trigger>
+								<DropdownMenu.Content align="start" class="w-fit">
+									{#each CATEGORY_SLOT_IDS as slot}
+										<DropdownMenu.Item
+											onclick={() => handleRecategorize(slot)}
+											class="flex items-center gap-2 text-xs"
+										>
+											<div
+												class="size-2 rounded-full"
+												style="background-color: {DEFAULT_SLOT_HEX[slot]}"
+											></div>
+											<span class="flex-1">{categoryLabels[slot - 1] ?? `Slot ${slot}`}</span>
+											{#if highlight.category_slot === slot}
+												<div class="size-1.5 rounded-full bg-primary"></div>
+											{/if}
+										</DropdownMenu.Item>
+									{/each}
+								</DropdownMenu.Content>
+							</DropdownMenu.Root>
+						{/if}
+					{:else}
+						<span
+							class="rounded-full px-2 py-0.5 text-[10px] font-bold"
+							style="background-color: {highlight.display_color ?? 'var(--muted)'}; color: #111;"
+						>
+							{badgeLabel}
+						</span>
+					{/if}
+
+					{#if highlight.text_status === 'provisional'}
+						<span
+							class="flex animate-pulse items-center gap-1.5 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary"
+						>
+							<span class="size-1 rounded-full bg-primary"></span>
+							REFINING
+						</span>
+					{/if}
+				</div>
+
+				<div class="opacity-0 transition-opacity group-hover:opacity-100">
+					<Button
+						variant="ghost"
+						size="icon"
+						class="size-6 rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+						title="Delete highlight"
+						onclick={(e) => {
+							e.stopPropagation();
+							onDelete(highlight);
+						}}
+					>
+						<Trash2 class="size-3.5" />
+					</Button>
+				</div>
+			</div>
+
+			<!-- Content Area -->
+			<div class="group/content relative flex min-w-0 flex-col text-left transition-colors">
+				<!-- Source Text Row -->
+				{#if highlight.type === 'area' && highlight.content?.image}
+					<div class="relative mt-1 overflow-hidden rounded-lg border bg-muted/30">
+						<img
+							src={highlight.content.image}
+							alt="Area highlight"
+							class="max-h-32 w-full object-contain transition-transform duration-300 group-hover/content:scale-[1.02]"
+						/>
+						<div
+							class="absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition-all group-hover/content:bg-black/5 group-hover/content:opacity-100"
+						>
+							<ExternalLink class="size-5 text-white drop-shadow-md" />
+						</div>
+					</div>
 				{:else}
-					<ImageIcon class="size-3.5 text-muted-foreground" />
+					<div class="mt-0.5 flex items-start justify-between gap-2">
+						<p
+							class={cn(
+								'text-[11px] leading-relaxed italic text-muted-foreground/80 transition-all duration-200',
+								!isTextExpanded && 'line-clamp-2',
+								highlight.text_status === 'provisional' && 'shimmer-text opacity-60'
+							)}
+						>
+							"{isTextExpanded ? fullText : excerpt}"
+						</p>
+						{#if isLongText}
+							<Button
+								variant="ghost"
+								size="icon"
+								class="size-6 shrink-0 rounded-md text-muted-foreground transition-colors hover:bg-accent"
+								title={isTextExpanded ? 'Collapse source' : 'Expand source'}
+								onclick={toggleTextExpansion}
+							>
+								<ChevronDown
+									class={cn('size-3.5 transition-transform duration-200', isTextExpanded && 'rotate-180')}
+								/>
+							</Button>
+						{/if}
+					</div>
+				{/if}
+
+				<!-- Highlight Comment Row -->
+				{#if commentText}
+					<div class="mt-1 flex items-start justify-between gap-2">
+						<p
+							class={cn(
+								'whitespace-pre-wrap text-sm font-normal leading-relaxed text-foreground/90',
+								'break-words [overflow-wrap:anywhere]',
+								!isCommentExpanded && 'line-clamp-3'
+							)}
+						>
+							{commentText}
+						</p>
+						{#if isLongComment}
+							<Button
+								variant="ghost"
+								size="icon"
+								class="size-6 shrink-0 rounded-md text-muted-foreground transition-colors hover:bg-accent"
+								title={isCommentExpanded ? 'Collapse comment' : 'Expand comment'}
+								onclick={toggleCommentExpansion}
+							>
+								<ChevronDown
+									class={cn('size-3.5 transition-transform duration-200', isCommentExpanded && 'rotate-180')}
+								/>
+							</Button>
+						{/if}
+					</div>
 				{/if}
 			</div>
-			{#if highlight.type === 'area' && highlight.content?.image}
-				<img
-					src={highlight.content.image}
-					alt=""
-					class="mt-1 max-h-16 rounded border object-contain"
-				/>
-			{:else}
-				<p class="line-clamp-2 text-muted-foreground">{excerpt || '—'}</p>
-			{/if}
-			{#if highlight.comment}
-				<p class="text-xs italic opacity-80">“{highlight.comment}”</p>
-			{/if}
-		</button>
-		<div class="flex shrink-0 flex-col gap-1 self-start">
-			{#if onRecategorize}
-				{#if decorativeMode}
-					<input
-						type="color"
-						class="border-input size-8 cursor-pointer rounded border"
-						bind:value={decoColor}
-						aria-label="Highlight color"
-					/>
-				{:else}
-					<select
-						class="border-input bg-background max-w-[140px] rounded-md border px-1 py-1 text-xs"
-						bind:value={recat}
-						aria-label="Category slot"
-					>
-						{#each [1, 2, 3, 4, 5] as slot (slot)}
-							<option value={String(slot)}
-								>{slot}. {categoryLabels[slot - 1] ?? `Slot ${slot}`}</option
-							>
-						{/each}
-					</select>
-				{/if}
-				<Button variant="secondary" size="sm" class="text-xs" onclick={applyRecategory}
-					>Apply</Button
-				>
-			{/if}
-			<Button
-				variant="ghost"
-				size="icon"
-				class="text-muted-foreground hover:text-destructive"
-				aria-label="Delete highlight"
-				onclick={() => onDelete(highlight)}
-			>
-				<Trash2 class="size-4" />
-			</Button>
 		</div>
 	</div>
 
-	{#if expanded}
-		<AnnotationList
-			highlightId={highlight.id!}
-			annotations={highlight.annotations ?? []}
-			onCreate={(body) => onAddAnnotation(highlight, body)}
-			onUpdate={(id, body) => onUpdateAnnotation(highlight, id, body)}
-			onDelete={(id) => onDeleteAnnotation(highlight, id)}
-		/>
-	{/if}
+	<!-- Section 2: Notes (Darker BG) -->
+	<div class="flex flex-col p-1.5">
+		{#if !selected && annotationCount > 0}
+			<div
+				class="flex items-center gap-1.5 px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider"
+			>
+				<MessageSquare class="size-3" />
+				{annotationCount}
+				{annotationCount === 1 ? 'note' : 'notes'}
+			</div>
+		{/if}
+
+		<div class="-mt-1" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
+			<AnnotationList
+				highlightId={highlight.id!}
+				annotations={highlight.annotations ?? []}
+				showAnnotations={selected}
+				onCreate={(body) => onAddAnnotation(highlight, body)}
+				onUpdate={(id, body) => onUpdateAnnotation(highlight, id, body)}
+				onDelete={(id) => onDeleteAnnotation(highlight, id)}
+				onRequestSelect={handleSelect}
+			/>
+		</div>
+	</div>
 </div>
+
+<style>
+	@keyframes shimmer {
+		0% {
+			background-position: -200% 0;
+		}
+		100% {
+			background-position: 200% 0;
+		}
+	}
+
+	:global(.shimmer-text) {
+		background: linear-gradient(
+			90deg,
+			transparent 25%,
+			rgba(150, 150, 150, 0.1) 50%,
+			transparent 75%
+		);
+		background-size: 200% 100%;
+		animation: shimmer 2s infinite linear;
+		display: inline-block;
+		width: 100%;
+	}
+
+	:global(.dark .shimmer-text) {
+		background: linear-gradient(
+			90deg,
+			transparent 25%,
+			rgba(255, 255, 255, 0.05) 50%,
+			transparent 75%
+		);
+		background-size: 200% 100%;
+	}
+</style>

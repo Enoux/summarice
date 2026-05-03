@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Highlight } from '$lib/pdf-highlighter/types';
+	import type { CommentedHighlight } from '$lib/pdf-highlighter/types';
 	import { HighlightsModel } from '$lib/pdf-highlighter';
 	import HighlightListItem from './HighlightListItem.svelte';
 	import { Search, RotateCcw, MessageSquare, LayoutList } from '@lucide/svelte';
@@ -13,24 +13,28 @@
 	import Summary from './Summary.svelte';
 
 	interface Props {
-		highlightsStore: HighlightsModel<Highlight>;
-		onJump: (h: Highlight) => void;
+		highlightsStore: HighlightsModel<CommentedHighlight>;
+		onSelectHighlight: (h: CommentedHighlight) => void;
 		isOpen?: boolean;
 		width?: number;
 		categoryLabels: string[];
 		decorativeMode: boolean;
-		onPersistDelete: (h: Highlight) => Promise<void>;
-		onRecategorize: (h: Highlight, category: number | null, color: string) => Promise<void>;
+		onPersistDelete: (h: CommentedHighlight) => Promise<void>;
+		onRecategorize: (
+			h: CommentedHighlight,
+			category: number | null,
+			color: string
+		) => Promise<void>;
 		onResetAll?: () => Promise<void>;
-		onAddAnnotation: (h: Highlight, body: string) => Promise<void>;
-		onUpdateAnnotation: (h: Highlight, id: string, body: string) => Promise<void>;
-		onDeleteAnnotation: (h: Highlight, id: string) => Promise<void>;
-		expandedHighlightId?: string | null;
+		onAddAnnotation: (h: CommentedHighlight, body: string) => Promise<void>;
+		onUpdateAnnotation: (h: CommentedHighlight, id: string, body: string) => Promise<void>;
+		onDeleteAnnotation: (h: CommentedHighlight, id: string) => Promise<void>;
+		selectedHighlightId?: string | null;
 	}
 
 	let {
 		highlightsStore,
-		onJump,
+		onSelectHighlight,
 		isOpen = $bindable(true),
 		width = $bindable(420),
 		categoryLabels,
@@ -41,34 +45,30 @@
 		onAddAnnotation,
 		onUpdateAnnotation,
 		onDeleteAnnotation,
-		expandedHighlightId = $bindable(null)
+		selectedHighlightId = $bindable(null)
 	}: Props = $props();
 
 	let query = $state('');
 	let activeTab = $state('highlights');
 	let isResizing = $state(false);
 
-	const filtered = $derived.by(() => {
+	const filtered = $derived.by((): CommentedHighlight[] => {
 		const q = query.trim().toLowerCase();
 		let list = [...highlightsStore.highlights];
 		list.sort((a, b) => (a.ordinal ?? 0) - (b.ordinal ?? 0));
 		if (!q) return list;
-		return list.filter((h: Highlight) => {
+		return list.filter((h: CommentedHighlight) => {
 			const text = h.content?.text?.toLowerCase() ?? '';
 			const com = h.comment?.toLowerCase() ?? '';
 			return text.includes(q) || com.includes(q) || (h.id?.toLowerCase().includes(q) ?? false);
 		});
 	});
 
-	function jump(h: Highlight) {
-		if (h.id) {
-			location.hash = `highlight-${h.id}`;
-			expandedHighlightId = h.id;
-		}
-		onJump(h);
+	function selectHighlight(h: CommentedHighlight) {
+		onSelectHighlight(h);
 	}
 
-	async function deleteOne(h: Highlight) {
+	async function deleteOne(h: CommentedHighlight) {
 		try {
 			await onPersistDelete(h);
 			highlightsStore.deleteHighlight(h);
@@ -112,12 +112,14 @@
 		role="separator"
 		aria-label="Resize sidebar"
 	>
-		<div class="absolute h-8 w-1.5 rounded-full bg-border group-hover:bg-primary-foreground/50"></div>
+		<div
+			class="absolute h-8 w-1.5 rounded-full bg-border group-hover:bg-primary-foreground/50"
+		></div>
 	</div>
 {/if}
 
 <aside
-	class="flex h-full shrink-0 select-none flex-col border-l border-border bg-card transition-[width] duration-300"
+	class="flex h-full shrink-0 flex-col border-l border-border bg-card transition-[width] duration-300 select-none"
 	class:hidden={!isOpen}
 	style:width="{width}px"
 	aria-label="Sidebar"
@@ -148,26 +150,29 @@
 		</div>
 
 		{#if activeTab === 'highlights'}
-			<div class="flex items-center gap-2 border-b border-border p-3">
-				<Search class="size-4 shrink-0 text-muted-foreground" />
-				<Input type="search" bind:value={query} placeholder="Search highlights…" class="flex-1" />
+			<div class="px-2 py-3">
+				<div class="relative">
+					<Search class="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+					<Input type="search" bind:value={query} placeholder="Search highlights..." class="pl-9" />
+				</div>
 			</div>
+			<Separator class="opacity-50" />
 
 			<ScrollArea class="min-h-0 flex-1" orientation="vertical">
-				<div class="flex flex-col gap-2 p-3" role="list">
+				<div class="flex flex-col gap-2 p-3" role="listbox" aria-label="Document highlights">
 					{#each filtered as h (h.id)}
 						<HighlightListItem
 							highlight={h}
-							onJump={jump}
+							onSelect={selectHighlight}
 							onDelete={deleteOne}
-							onRecategorize={onRecategorize}
+							{onRecategorize}
 							{categoryLabels}
 							{decorativeMode}
-							onAddAnnotation={onAddAnnotation}
-							onUpdateAnnotation={onUpdateAnnotation}
-							onDeleteAnnotation={onDeleteAnnotation}
-							expanded={expandedHighlightId === (h.id ?? null)}
-							onToggleExpand={(hl) => (expandedHighlightId = expandedHighlightId === (hl.id ?? null) ? null : (hl.id ?? null))}
+							{onAddAnnotation}
+							{onUpdateAnnotation}
+							{onDeleteAnnotation}
+							selected={selectedHighlightId === (h.id ?? null)}
+							onHover={(id) => highlightsStore.setHoveredHighlightId(id)}
 						/>
 					{:else}
 						<div class="flex flex-col items-center justify-center space-y-3 py-20 text-center">
@@ -192,7 +197,7 @@
 					<Button
 						variant="outline"
 						size="sm"
-						class="text-muted-foreground hover:text-destructive w-full gap-2"
+						class="w-full gap-2 text-muted-foreground hover:text-destructive"
 						onclick={() => onResetAll()}
 					>
 						<RotateCcw class="size-3.5" />
@@ -200,12 +205,10 @@
 					</Button>
 				</div>
 			{/if}
+		{:else if PUBLIC_MOCK_COMPONENTS === 'true'}
+			<MockSummary />
 		{:else}
-			{#if PUBLIC_MOCK_COMPONENTS === 'true'}
-				<MockSummary />
-			{:else}
-				<Summary />
-			{/if}
+			<Summary />
 		{/if}
 	</div>
 </aside>

@@ -50,6 +50,7 @@
 		'group relative rounded-md p-2 text-sm transition-colors select-none',
 		annotation.source === 'ai' ? 'bg-primary/5 border border-primary/10' : 'bg-muted/30'
 	)}
+	onclick={(e) => e.stopPropagation()}
 >
 	<div class="mb-1 flex items-center justify-between">
 		<div class="flex items-center gap-1.5">
@@ -70,7 +71,10 @@
 					variant="ghost"
 					size="icon"
 					class="h-6 w-6 text-muted-foreground hover:text-destructive"
-					onclick={() => onDelete(annotation.id)}
+					onclick={(e) => {
+						e.stopPropagation();
+						onDelete(annotation.id);
+					}}
 				>
 					<Trash2 class="size-3.5" />
 				</Button>
@@ -101,9 +105,12 @@
 	{:else}
 		<!-- svelte-ignore a11y_click_events_have_key_events -->
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div 
+		<div
 			class="cursor-text whitespace-pre-wrap break-words"
-			onclick={() => (isEditing = true)}
+			onclick={(e) => {
+				e.stopPropagation();
+				isEditing = true;
+			}}
 		>
 			{annotation.body}
 		</div>
