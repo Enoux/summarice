@@ -112,6 +112,7 @@ export interface Annotation {
  */
 export interface Highlight {
 	id?: string;
+	text_status?: 'provisional' | 'refined' | 'fallback';
 	/** Per-document creation order ordinal (PRD Decision G1). */
 	ordinal?: number;
 	/** Semantic category slot 1–5; omitted or null in decorative color mode. */
@@ -275,7 +276,7 @@ export type LeftPanelTab = 'outline' | 'thumbnails';
 export type PdfHighlighterUtils = {
 	isSelectionInProgress(): boolean;
 
-	scrollToHighlight(highlight: Highlight): void;
+	scrollToHighlight(highlight: Highlight, useFlash?: boolean): void;
 	scrolledToHighlightIdRef?: string | null;
 
 	currentScale: number; //Represents scale as a number
@@ -306,6 +307,13 @@ export type PdfHighlighterUtils = {
 	getEventBus(): unknown;
 	/** Resolved viewer chrome theme (for header / tooling) */
 	viewerTheme: PdfHighlighterTheme;
+	hoveredHighlightId?: string | null;
+	activeTipHighlightId?: string | null;
+	activeTipPinned?: boolean;
+	hasActiveTip?: boolean;
+	setHoveredHighlightId(id: string | null): void;
+	setActiveTipHighlightId(id: string | null, pinned?: boolean): void;
+	isHighlightInteractionBlocked(id: string | null | undefined): boolean;
 };
 
 export type TipContainerState = {
@@ -317,4 +325,8 @@ export type TipContainerState = {
 	clearSelection: () => void;
 	tip?: Tip;
 	tip_id?: string;
+	entryPoint?: {
+		clientX: number;
+		clientY: number;
+	};
 };

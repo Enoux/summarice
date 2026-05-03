@@ -7,6 +7,9 @@ export class HighlightsModel<T extends Highlight> {
 	private _highlights: Array<T> = $state([]);
 
 	private _highlightsByPage = $derived.by(() => groupHighlightsByPage([...this.highlights]));
+	private _hoveredHighlightId = $state<string | null>(null);
+	private _activeTipHighlightId = $state<string | null>(null);
+	private _activeTipPinned = $state(false);
 
 	private listeners = new SvelteSet<(arr: Array<T>) => unknown>();
 
@@ -32,6 +35,35 @@ export class HighlightsModel<T extends Highlight> {
 		this.listeners.add(callback);
 		return () => this.listeners.delete(callback);
 	};
+
+	get hoveredHighlightId() {
+		return this._activeTipHighlightId ?? this._hoveredHighlightId;
+	}
+	get activeTipHighlightId() {
+		return this._activeTipHighlightId;
+	}
+	get activeTipPinned() {
+		return this._activeTipPinned;
+	}
+	get hasActiveTip() {
+		return Boolean(this._activeTipHighlightId);
+	}
+
+	public setHoveredHighlightId(id: string | null) {
+		if (this._activeTipPinned) return;
+		this._hoveredHighlightId = id;
+	}
+
+	public setActiveTipHighlightId(id: string | null, pinned = false) {
+		this._activeTipHighlightId = id;
+		this._activeTipPinned = Boolean(id && pinned);
+		if (this._activeTipPinned) this._hoveredHighlightId = null;
+	}
+
+	public isHighlightInteractionBlocked(id: string | null | undefined) {
+		if (!this._activeTipHighlightId) return false;
+		return this._activeTipHighlightId !== id;
+	}
 
 	public addHighlight = (highlight: T) => {
 		const id = highlight.id ?? this.getNextId();
