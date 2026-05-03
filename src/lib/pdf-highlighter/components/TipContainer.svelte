@@ -19,25 +19,39 @@
 		prepareHighlightForAdd?: (
 			h: CommentedHighlight
 		) => CommentedHighlight | Promise<CommentedHighlight>;
+		saveHighlightComment?: (highlight: CommentedHighlight, comment: string) => Promise<unknown>;
+		deleteHighlight?: (highlight: CommentedHighlight) => Promise<void>;
 
 		highlightPopup?: Snippet<[highlight: Highlight, setPinned: (flag: boolean) => void]>;
 		editHighlightPopup?: Snippet<
 			[
 				highlight: Highlight,
 				colors: string[],
-				onEdit: (comment: string) => void,
-				onDelete: (highlight: Highlight) => void
+				onEdit: (comment: string) => Promise<void>,
+				onDelete: (highlight: Highlight) => void,
+				onColorChange: (colorIndex: number) => void
 			]
 		>;
 		newHighlightPopup?: Snippet<
-			[highlight: Highlight, colors: string[], onAddHighlight: (highlight: Highlight) => void]
+			[
+				highlight: Highlight,
+				colors: string[],
+				onAddHighlight: (highlight: Highlight) => void,
+				clearTextSelection: () => void,
+				onClose: () => void,
+				selectedTool?: string
+			]
 		>;
+		selectedTool?: string;
 	}
 </script>
 
 <script lang="ts">
-	import { debounce } from '$lib/pdf-highlighter/utils';
 	import type { ViewportPosition } from '$lib/pdf-highlighter/types';
+	import { onMount } from 'svelte';
+	import DefaultHighlightPopup from './DefaultHighlightPopup.svelte';
+	import DefaultEditHighlightPopup from './DefaultEditHighlightPopup.svelte';
+	import DefaultNewSelectionPopup from './DefaultNewSelectionPopup.svelte';
 
 	let {
 		viewer,
@@ -46,537 +60,571 @@
 		colors,
 		clearTextSelection,
 		prepareHighlightForAdd,
+		saveHighlightComment,
+		deleteHighlight,
 
-		highlightPopup = defaultHighlightPopup,
-		editHighlightPopup = defaultEditHighlightPopup,
-		newHighlightPopup = defaultNewHighlightPopup
+		highlightPopup,
+		editHighlightPopup,
+		newHighlightPopup,
+		selectedTool
 	}: TipContainerProps = $props();
 
-	const clamp = (value: number, left: number, right: number) =>
-		Math.min(Math.max(value, left), right);
+	// --- State Management ---
+	let activePopupState: Partial<TTipContainerState> = $state({ show: false });
+	let activeTipId = $state<string | undefined>(undefined);
+	let show = $state(false);
+	let pinned = $state(false);
+	let mouseInPopup = $state(false);
+	let shouldBeHidden = $state(true); // Used to avoid measurement flashes
+	const HOVER_BRIDGE_STOP_EVENT = 'pdf-highlighter:hover-bridge-stop';
+	const HOVER_TIP_LEAVE_EVENT = 'pdf-highlighter:hover-tip-leave';
+	const COMMENT_EDITOR_PLACEMENT_HEIGHT = 152;
 
+	// Positioning state
 	let top = $state(0);
 	let clampedLeft = $state(0);
 	let width = $state(0);
 	let height = $state(0);
-	let show = $state(false);
-	let pinned = $state(false);
-	let mouseInRef = $state(false);
 
-	let tipContainerState: Partial<TTipContainerState> = $state({ show: false });
+	// --- Derived state for cleaner template ---
+	const activeHighlight = $derived.by(() => {
+		const tipHighlight = activePopupState?.tip?.content?.highlight;
+		const id = tipHighlight?.id ?? activePopupState.highlight?.id;
+		if (id) {
+			return highlightsStore.getHighlightById(id) ?? (tipHighlight as Highlight);
+		} else if (tipHighlight) {
+			return tipHighlight as Highlight;
+		} else if (activePopupState.highlight) {
+			return activePopupState.highlight;
+		} else {
+			return undefined;
+		}
+	});
+	const usesCommentEditorPlacement = $derived(Boolean(activeHighlight?.id));
+	const placementHeight = $derived(
+		usesCommentEditorPlacement && !pinned ? Math.max(height, COMMENT_EDITOR_PLACEMENT_HEIGHT) : height
+	);
 
-	let highlight: Highlight | undefined = $derived.by(() => {
-		const tipHighlight = tipContainerState?.tip?.content?.highlight;
-		if (tipHighlight) {
-			return tipHighlight;
-		} else if (tipContainerState.highlight) {
-			return tipContainerState.highlight;
+	const activePosition = $derived.by(() => {
+		if (activePopupState?.tip?.position) {
+			return activePopupState.tip.position;
+		} else if (activePopupState.position) {
+			return activePopupState.position;
 		} else {
 			return undefined;
 		}
 	});
 
-	let tipPosition: ViewportPosition | undefined = $derived.by(() => {
-		if (tipContainerState?.tip?.position) {
-			return tipContainerState.tip?.position;
-		} else if (tipContainerState.position) {
-			return tipContainerState.position;
-		} else {
-			return undefined;
-		}
-	});
-
-	let shouldBeHidden = $state(true);
-
-	const hideTip = (e: MouseEvent | null, force = false) => {
-		//handler for mouse click outside of the tip
-		if (!force && (e?.target as Element | null)?.closest('.hl_tip_container')) return;
-		if (show) {
-			show = false;
-			pinned = false;
-			mouseInRef = false;
-		}
-		shouldBeHidden = true;
-	};
-
-	const clearTip = () => {
-		hideTip(null, true);
-		tipContainerState = { show: false };
-	};
-
-	const updateTip = (_tipContainerState: Partial<TTipContainerState> | null) => {
-		if (_tipContainerState === null) {
-			hideTip(null, true);
-			return;
-		}
-		if (pinned && !_tipContainerState.pinned) return;
-		pinned = _tipContainerState.pinned ?? false;
-		if (mouseInRef) return;
-		show = _tipContainerState.show ?? false;
-		tipContainerState = _tipContainerState;
-
-		//wait for the size of rerendered element to be established
-		//TODO: fixed size, defined in snippet?
-		setTimeout(() => {
-			updatePosition();
-			setTimeout(() => {
-				shouldBeHidden = false;
-			}, 10);
-		}, 20);
-		//updatePosition();
-	};
-
-	const debouncedUpdateTip = debounce(updateTip, 150) as (
-		state: Partial<TTipContainerState> | null
-	) => void;
-	$effect(() => {
-		onTipUpdate(debouncedUpdateTip);
-	});
+	// --- Utilities ---
+	const clamp = (value: number, left: number, right: number) =>
+		Math.min(Math.max(value, left), right);
 
 	const updatePosition = () => {
-		//console.log('run tipContainer effect');
-		if (!tipContainerState.show) return;
+		if (!show || !activePosition) return;
 
-		const position = tipPosition;
-		if (!position) return;
-		const { boundingRect } = position;
+		const { boundingRect } = activePosition;
 		const pageNumber = boundingRect.pageNumber;
-		const pageNode = viewer.getPageView(pageNumber - 1)?.div; // Account for 1 indexing of pdf documents
+		const pageNode = viewer.getPageView(pageNumber - 1)?.div;
 		if (!pageNode) return;
 
-		// Calculate the position and dimensions of the tip container
-		const scrollTop = viewer.container.scrollTop; // How much the viewer has been scrolled vertically
-		const left = pageNode.offsetLeft + boundingRect.left + boundingRect.width / 2; // center tip over highlight
+		const containerRect = viewer.container.getBoundingClientRect();
+		const scrollTop = viewer.container.scrollTop;
+
 		const highlightTop = boundingRect.top + pageNode.offsetTop;
 		const highlightBottom = highlightTop + boundingRect.height;
+		const highlightCenter = pageNode.offsetLeft + boundingRect.left + boundingRect.width / 2;
 
-		// Determine whether the tip should be moved below the highlight
-		const shouldMove = highlightTop - height - 10 < scrollTop; // Would the tip render beyond the top of the visible document?
-		top = shouldMove ? highlightBottom + height - 1 : highlightTop - 5;
-		//top = top - 1;
+		const isNewSelection = !activeHighlight?.id;
 
-		// Ensure the tip stays within the left edge of the viewer and the right edge of the page
+		// Entry point logic in viewer content space
+		let entryX: number | undefined;
+		let entryY: number | undefined;
+		if (activePopupState.entryPoint) {
+			entryX =
+				activePopupState.entryPoint.clientX - containerRect.left + viewer.container.scrollLeft;
+			entryY = activePopupState.entryPoint.clientY - containerRect.top + viewer.container.scrollTop;
+		}
+
+		// Side selection
+		// Use inflated placementHeight for side decision so hover and edit pick the same side.
+		const aboveFits = highlightTop - placementHeight - 10 >= scrollTop;
+		const visibleBottom = scrollTop + viewer.container.clientHeight;
+		const belowFits = highlightBottom + placementHeight <= visibleBottom;
+
+		let placeBelow = !aboveFits;
+		if (activePopupState.entryPoint && aboveFits && belowFits && entryY !== undefined) {
+			const distanceToTop = Math.abs(entryY - highlightTop);
+			const distanceToBottom = Math.abs(entryY - highlightBottom);
+			placeBelow = distanceToBottom < distanceToTop;
+		} else if (!aboveFits && !belowFits) {
+			// Fallback: if neither fits, default to above unless forced below by scrollTop
+			placeBelow = highlightTop - placementHeight - 10 < scrollTop;
+		}
+
+		// Use real measured height for the rendered position so the near edge anchors to the highlight.
+		const gap = isNewSelection ? 0 : 5;
+		top = placeBelow ? highlightBottom + gap : highlightTop - height - gap;
+
+		// Horizontal placement
+		const highlightLeft = pageNode.offsetLeft + boundingRect.left;
+		const highlightRight = highlightLeft + boundingRect.width;
+		const preferredCenter =
+			entryX !== undefined ? clamp(entryX, highlightLeft, highlightRight) : highlightCenter;
+
 		clampedLeft = clamp(
-			left - width / 2,
+			preferredCenter - width / 2,
 			viewer.container.scrollLeft,
 			viewer.container.offsetWidth - width + viewer.container.scrollLeft - 20
 		);
-		//clampedLeft = clamp(left - width / 2, 0, pageLeft + pageWidth - width);
 	};
 
-	const setColor = (targetHighlight: Highlight, color_index: number) => {
+	const showTip = (state: Partial<TTipContainerState>) => {
+		if (pinned && !state.pinned) return;
+		if (show && state.tip_id !== activeTipId) {
+			document.dispatchEvent(new CustomEvent(HOVER_BRIDGE_STOP_EVENT));
+		}
+
+		activePopupState = state;
+		activeTipId = state.tip_id;
+		pinned = state.pinned ?? false;
+		highlightsStore.setActiveTipHighlightId(state.tip_id ?? state.highlight?.id ?? null, pinned);
+		show = true;
+		shouldBeHidden = true; // Start hidden for measurement
+	};
+
+	const hideTip = (force = false) => {
+		if (pinned && !force) return;
+
+		if (mouseInPopup && !force) return;
+		show = false;
+		pinned = false;
+		activePopupState = { show: false };
+		activeTipId = undefined;
+		highlightsStore.setActiveTipHighlightId(null, false);
+		document.dispatchEvent(new CustomEvent(HOVER_BRIDGE_STOP_EVENT));
+	};
+
+	// Public API for the highlighter to update the tip
+	const updateTipApi = (newState: Partial<TTipContainerState> | null) => {
+		if (newState === null || newState.show === false) {
+			hideTip(newState === null); // Force immediately if null
+		} else {
+			showTip(newState);
+		}
+	};
+
+	onMount(() => {
+		onTipUpdate(updateTipApi);
+
+		const handleDocumentClick = (e: MouseEvent) => {
+			// Use capture phase to catch clicks before stopPropagation
+			if (!(e.target instanceof Element) || !e.target.closest('.hl_tip_container')) {
+				clearTextSelection();
+				hideTip(true);
+			}
+		};
+
+		document.addEventListener('mousedown', handleDocumentClick, { capture: true });
+		return () => {
+			document.removeEventListener('mousedown', handleDocumentClick, { capture: true });
+		};
+	});
+
+	// Reactive positioning and visibility toggle
+	$effect(() => {
+		if (show && activePosition && height > 0 && width > 0) {
+			updatePosition();
+			if (shouldBeHidden) {
+				// Once positioned correctly, show the tip
+				const raf = requestAnimationFrame(() => {
+					shouldBeHidden = false;
+				});
+				return () => cancelAnimationFrame(raf);
+			}
+		}
+	});
+
+	// --- Handlers ---
+	function handleColorChange(targetHighlight: Highlight, colorIndex: number) {
 		if (!targetHighlight?.id) return;
-		targetHighlight.color_index = color_index;
-		highlightsStore.editHighlight(targetHighlight.id, { color_index });
-	};
+		highlightsStore.editHighlight(targetHighlight.id, { color_index: colorIndex });
+	}
 
-	let commentForceShow = $state(false);
-	const showComment = debounce(() => (commentForceShow = true), 1000);
+	async function handleCommentEdit(targetHighlight: Highlight, comment: string) {
+		if (!targetHighlight.id) return;
+		if (saveHighlightComment) {
+			const result = await saveHighlightComment(targetHighlight as CommentedHighlight, comment);
+			if (result && typeof result === 'object' && 'ok' in result && result.ok === false) {
+				throw new Error('message' in result ? String(result.message) : 'Comment could not be saved.');
+			}
+			return;
+		}
+		highlightsStore.editHighlight(targetHighlight.id, { comment });
+	}
 
-	let selected_id_to_del = $state('');
+	async function handleHighlightDelete(targetHighlight: Highlight) {
+		if (!targetHighlight.id) return;
+		if (deleteHighlight) {
+			await deleteHighlight(targetHighlight as CommentedHighlight);
+		}
+		highlightsStore.deleteHighlight(targetHighlight as CommentedHighlight);
+		closeTipForce();
+	}
+
+	function setPinnedState(flag: boolean) {
+		pinned = flag;
+		highlightsStore.setActiveTipHighlightId(activeTipId ?? activeHighlight?.id ?? null, flag);
+	}
+
+	async function handleAddHighlight(h: Highlight) {
+		const base = h as CommentedHighlight;
+		const prepared = prepareHighlightForAdd ? await prepareHighlightForAdd(base) : base;
+		const _highlight = highlightsStore.addHighlight(prepared);
+
+		setPinnedState(true);
+		activePopupState.clearSelection?.();
+		activePopupState.highlight = _highlight;
+		shouldBeHidden = true;
+	}
+
+	function closeTipForce() {
+		hideTip(true);
+	}
 </script>
 
-{#snippet defaultHighlightPopup(hl: Highlight, setPinned: (flag: boolean) => void)}
-	<!-- TODO: expand on hover with delay -->
+{#if show && activeHighlight}
 	<div
 		role="region"
-		aria-label="Highlight popup"
-		class="Highlight__popup"
-		style="display: flex; align-items: center;"
-		onmouseleave={() => {
-			showComment.cancel();
-			commentForceShow = false;
+		aria-label="Tooltip container"
+		class="hl_tip_container"
+		bind:clientHeight={height}
+		bind:clientWidth={width}
+		style="top: {top}px; left: {clampedLeft}px; padding: 3px; visibility: {shouldBeHidden ? 'hidden' : ''};"
+		onmouseenter={() => {
+			mouseInPopup = true;
+		}}
+		onmouseleave={(event) => {
+			mouseInPopup = false;
+			const leaveEvent = new CustomEvent(HOVER_TIP_LEAVE_EVENT, {
+				bubbles: false,
+				cancelable: true,
+				detail: { clientX: event.clientX, clientY: event.clientY }
+			});
+
+			if (document.dispatchEvent(leaveEvent)) {
+				hideTip();
+			}
 		}}
 	>
-		{#if hl.comment}
-			<div role="group" style="margin: 5px;" onmouseenter={showComment}>
-				{#if hl.comment.length > 20 && commentForceShow}
-					<div style="height: 5rem; width: 150px; text-align: left; overflow-y: scroll;">
-						{hl.comment}
-					</div>
-				{:else if hl.comment.length > 20 && !commentForceShow}
-					<div style="max-width: 150px; white-space: nowrap;">
-						<span style="mask-image: linear-gradient(to right, rgba(0,0,0,1) 50%, rgba(0,0,0,0));">
-							{hl.comment.slice(0, 21) + '...'}</span
-						>
-					</div>
+		{#if activeHighlight.id}
+			<!-- Existing Highlight -->
+			{#if !pinned}
+				{#if highlightPopup}
+					{@render highlightPopup(activeHighlight, setPinnedState)}
 				{:else}
-					{hl.comment}
+					<DefaultHighlightPopup
+						highlight={activeHighlight}
+						setPinned={setPinnedState}
+						onDeleteHighlight={handleHighlightDelete}
+					/>
 				{/if}
-				<span style="font-size: 0.8em;"></span>
-			</div>
-		{:else}
-			<div style="margin: 5px; white-space: nowrap;">
-				Comment has no Text <span style="font-size: 0.8em;"></span>
-			</div>
-		{/if}
-
-		<button style="margin-left: 1rem;" class="TipButton" onclick={() => setPinned(true)}
-			><div style="height: 1.1rem; width: 1.1rem;" class="icon">
-				<svg
-					xmlns="http://www.w3.org/2000/svg"
-					width="24"
-					height="24"
-					viewBox="0 0 24 24"
-					fill="none"
-					stroke="currentColor"
-					stroke-width="1.5"
-					stroke-linecap="round"
-					stroke-linejoin="round"
-					><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path
-						d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"
-					/><!--Lucide - https://lucide.dev License - https://lucide.dev/license Copyright (c) for portions of Lucide are held by Cole Bemis 2013-2022 as part of Feather (MIT). All other copyright (c) for Lucide are held by Lucide Contributors 2022.--></svg
-				>
-			</div>
-		</button>
-		<!-- <button style="margin-left: 0.3rem;" class="TipButton"
-                onclick={() => onDelete(highlight)}
-            ><div style="height: 1.1rem; width: 1.1rem;" class="icon">
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-trash2-icon lucide-trash-2"><path d="M10 11v6"/><path d="M14 11v6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-            </div>
-        </button> -->
-	</div>
-{/snippet}
-
-{#snippet defaultEditHighlightPopup(
-	highlight: Highlight,
-	colors: string[],
-	onEdit: (comment: string) => void,
-	onDelete: (highlight: Highlight) => void
-)}
-	<div class="Highlight__popup EditPopup">
-		<textarea
-			style="height: 150px; width: 350px;"
-			onchange={(e) => onEdit((e.target as HTMLInputElement).value)}
-			value={highlight.comment ? highlight.comment : ''}
-		></textarea>
-		<hr style="border: none; background-color: #8c8c8c; height: 0px;" />
-		<!--<button onclick={()=>{highlightsStore.editHighlight(highlight.id)}}>edit</button>-->
-		<div style="display: inline-flex; align-items: center; justify-content: center; width: 100%;">
-			<div style="margin-left: auto;">
-				{#each colors as color, index (color + index)}
-					<button
-						type="button"
-						class="color"
-						aria-label="Highlight color {index + 1}"
-						onclick={() => setColor(highlight, index)}
-						style="background-color: {color}; border: {highlight.color_index === index
-							? '1px solid grey'
-							: 'none'};"
-						onpointerdown={(e) => {
-							e.preventDefault();
-							e.stopPropagation();
-						}}
-						onpointerup={(e) => {
-							e.preventDefault();
-							e.stopPropagation();
-						}}
-					>
-					</button>
-				{/each}
-			</div>
-			<!-- TODO: add custom color/colorpicker? -->
-
-			{#if selected_id_to_del == highlight.id}
-				<div style="float:right; margin-left: 1rem;">
-					<span style="font-size: small;">delete this highlight?</span>
-					<button
-						class="tip__delete-confirm"
-						onclick={() => {
-							onDelete(highlight);
-							selected_id_to_del = '';
-							clearTip();
-						}}>&#x2713;</button
-					>
-					<button
-						class="tip__delete-cancel"
-						onclick={() => {
-							selected_id_to_del = '';
-						}}>&#x2715;</button
-					>
-				</div>
 			{:else}
-				<button
-					style="margin-left: auto;"
-					class="TipButton"
-					onclick={() => (selected_id_to_del = highlight.id ?? '')}
-					><div style="height: 1.2rem; width: 1.2rem;" class="icon">
-						<svg
-							xmlns="http://www.w3.org/2000/svg"
-							width="24"
-							height="24"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="1.5"
-							stroke-linecap="round"
-							stroke-linejoin="round"
-							><path d="M10 11v6" /><path d="M14 11v6" /><path
-								d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"
-							/><path d="M3 6h18" /><path
-								d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
-							/><!--Lucide - https://lucide.dev License - https://lucide.dev/license Copyright (c) for portions of Lucide are held by Cole Bemis 2013-2022 as part of Feather (MIT). All other copyright (c) for Lucide are held by Lucide Contributors 2022.--></svg
-						>
-					</div></button
-				>
-			{/if}
-		</div>
-	</div>
-{/snippet}
-
-{#snippet defaultNewHighlightPopup(
-	highlight: Highlight,
-	colors: string[],
-	onAddHighlight: (highlight: Highlight) => void
-)}
-	<div class="Highlight__popup">
-		{#each colors as color, index (color + index)}
-			<button
-				type="button"
-				class="color"
-				aria-label="New highlight color {index + 1}"
-				onclick={() => {
-					if (!highlight.id) {
-						highlight.color_index = index;
-						onAddHighlight(highlight);
-					}
-				}}
-				style="background-color: {color}"
-				onpointerdown={(e) => {
-					e.preventDefault();
-					e.stopPropagation();
-				}}
-				onpointerup={(e) => {
-					e.preventDefault();
-					e.stopPropagation();
-				}}
-			></button>
-		{/each}
-		<!--TODO: add custom color/colorpicker?-->
-
-		<button
-			style="margin-left: 5px;"
-			class="TipButton"
-			onclick={(e) => {
-				const text = tipContainerState.highlight?.content?.text;
-				if (text) navigator.clipboard.writeText(text);
-				clearTextSelection();
-				hideTip(e, true);
-			}}
-			><div style="height: 1rem; width: 1rem; margin: auto;" class="icon">
-				<svg
-					xmlns="http://www.w3.org/2000/svg"
-					width="24"
-					height="24"
-					viewBox="0 0 24 24"
-					fill="none"
-					stroke="currentColor"
-					stroke-width="2"
-					stroke-linecap="round"
-					stroke-linejoin="round"
-					><rect width="14" height="14" x="8" y="8" rx="2" ry="2" /><path
-						d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"
-					/><!--Lucide - https://lucide.dev License - https://lucide.dev/license Copyright (c) for portions of Lucide are held by Cole Bemis 2013-2022 as part of Feather (MIT). All other copyright (c) for Lucide are held by Lucide Contributors 2022.--></svg
-				>
-			</div>
-		</button>
-	</div>
-{/snippet}
-
-{#if show}
-	{#if highlight}
-		{#if highlight.id}
-			<!-- Existing highlight -->
-			<div
-				role="region"
-				aria-label="Highlight annotation"
-				class="hl_tip_container"
-				bind:clientHeight={height}
-				bind:clientWidth={width}
-				style="top: {top -
-					height}px; left: {clampedLeft}px; padding: 3px; visibility: {shouldBeHidden
-					? 'hidden'
-					: ''};"
-				onmouseenter={() => {
-					mouseInRef = true;
-				}}
-				onmouseleave={() => {
-					if (pinned) return;
-					mouseInRef = false;
-					show = false;
-				}}
-			>
-				<!-- TODO: edit button -->
-				{#if !pinned}
-					{@render highlightPopup(highlight, (flag: boolean) => {
-						pinned = flag;
-
-						//wait for the size of rerendered element to be established
-						shouldBeHidden = true;
-						setTimeout(() => {
-							updatePosition();
-							shouldBeHidden = false;
-						}, 30);
-					})}
-				{:else}
+				{#if editHighlightPopup}
 					{@render editHighlightPopup(
-						highlight,
+						activeHighlight,
 						colors,
-						(comment) => {
-							highlightsStore.editHighlight(highlight.id ?? '', { comment: comment });
-						},
+						(comment) => handleCommentEdit(activeHighlight, comment),
 						(h) => {
-							highlightsStore.deleteHighlight(h as CommentedHighlight);
-							pinned = false;
-							tipContainerState.show = false;
-						}
+							void handleCommentEdit(h, '');
+						},
+						(colorIndex) => handleColorChange(activeHighlight, colorIndex)
 					)}
+				{:else}
+					<DefaultEditHighlightPopup
+						highlight={activeHighlight}
+						{colors}
+						onEdit={(comment) => handleCommentEdit(activeHighlight, comment)}
+						onClose={closeTipForce}
+						onColorChange={(colorIndex) => handleColorChange(activeHighlight, colorIndex)}
+					/>
 				{/if}
-			</div>
+			{/if}
 		{:else}
-			<!-- New highlight (on text selection) -->
-			<div
-				class="hl_tip_container"
-				bind:clientHeight={height}
-				bind:clientWidth={width}
-				style="top: {top -
-					height +
-					5}px; left: {clampedLeft}px; padding: 3px; visibility: {shouldBeHidden ? 'hidden' : ''};"
-			>
-				{@render newHighlightPopup(highlight, colors, async (h) => {
-					const base = h as CommentedHighlight;
-					const prepared = prepareHighlightForAdd
-						? await prepareHighlightForAdd(base)
-						: base;
-					const _highlight = highlightsStore.addHighlight(prepared);
-					pinned = true;
-					tipContainerState.clearSelection?.();
-					tipContainerState.highlight = _highlight;
-					shouldBeHidden = true;
-					setTimeout(() => {
-						updatePosition();
-						shouldBeHidden = false;
-					}, 30);
-				})}
-			</div>
+			<!-- New Selection -->
+			{#if newHighlightPopup}
+				{@render newHighlightPopup(
+					activeHighlight,
+					colors,
+					handleAddHighlight,
+					clearTextSelection,
+					closeTipForce,
+					selectedTool
+				)}
+			{:else}
+				<DefaultNewSelectionPopup
+					highlight={activeHighlight}
+					{colors}
+					onAddHighlight={handleAddHighlight}
+					{clearTextSelection}
+					onClose={closeTipForce}
+					{selectedTool}
+				/>
+			{/if}
 		{/if}
-	{/if}
+	</div>
 {/if}
 
-<svelte:document onmouseup={hideTip} />
+<!-- No svelte:document listener needed as we use onMount for capture-phase mousedown -->
 
 <style type="text/css">
 	:global(.hl_tip_container) {
 		position: absolute;
-		z-index: 999;
+		z-index: 100;
 		text-align: center;
+		pointer-events: auto;
 
 		:global(button.color) {
 			border: none;
-			padding: 8px;
+			padding: 0;
 			text-align: center;
 			text-decoration: none;
 			display: inline-block;
-			margin: 3px 3px;
+			margin: 2px;
 			border-radius: 50%;
 			cursor: pointer;
-			width: 16px;
-			height: 16px;
+			width: 18px;
+			height: 18px;
+			transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+			border: 2px solid transparent;
+		}
+
+		:global(button.color:hover) {
+			transform: scale(1.2);
+			border-color: rgba(0, 0, 0, 0.1);
 		}
 	}
 
 	:global(.Highlight__popup) {
-		border: 1px solid #8c8c8c;
-		color: #000;
-		padding: 2px;
-		border-radius: 4px;
-		max-width: 300px;
-		/*min-width: 100px;
-        max-height: 2rem;*/
-		overflow-y: auto;
-		box-shadow: 0 2px 5px #8c8c8c;
-		font-size: 0.9rem;
-		background-color: #f8f9fa;
+		border: 1px solid var(--border, #e2e8f0);
+		color: var(--foreground, #0f172a);
+		padding: 6px;
+		width: max-content;
+		border-radius: 12px;
+		box-shadow:
+			0 10px 15px -3px rgba(0, 0, 0, 0.08),
+			0 4px 6px -4px rgba(0, 0, 0, 0.04),
+			0 0 0 1px rgba(0, 0, 0, 0.02);
+		font-size: 13px;
+		background-color: var(--background, #fff);
+		display: flex;
+		align-items: center;
+		gap: 1px;
+		backdrop-filter: blur(12px);
+		-webkit-backdrop-filter: blur(12px);
+		transform-origin: center bottom;
+	}
+
+	:global(.EditPopup) {
+		display: flex;
+		flex-direction: column;
+		max-height: 400px;
+		padding: 10px;
+	}
+
+	:global(.comment-placeholder) {
+		padding: 4px 10px;
+		color: var(--muted-foreground, #64748b);
+		font-size: 13px;
+		font-weight: 400;
 		display: flex;
 		align-items: center;
 	}
-	:global(.EditPopup) {
-		display: block;
-		max-height: 300px;
-		max-width: 400px;
-	}
 
-	:global(.Highlight__popup::-webkit-scrollbar) {
-		width: 8px;
-	}
-
-	:global(.Highlight__popup::-webkit-scrollbar-thumb) {
-		background-color: #4b6270;
-		border-radius: 5px;
-	}
-
-	:global(.Highlight__popup::-webkit-scrollbar-thumb:hover) {
-		background-color: #576c7a;
-	}
-
-	:global(.Highlight__popup::-webkit-scrollbar-track) {
-		background-color: #2c3e50;
-		border-radius: 5px;
-	}
-
-	:global(.icon) {
-		width: 1.1rem;
-		height: 1.1rem;
-		display: inline;
-		/*margin: 0px auto;*/
-	}
-	:global(.icon > svg) {
+	:global(.comment-textarea) {
 		width: 100%;
-		height: 100%;
-		stroke: #6c757d;
+		min-height: 80px;
+		padding: 10px;
+		border: 1px solid var(--border, #e2e8f0);
+		border-radius: 8px;
+		background: var(--muted, #f8fafc);
+		font-size: 13px;
+		line-height: 1.5;
+		resize: none;
+		outline: none;
+		margin-bottom: 10px;
+		transition: all 0.2s ease;
 	}
-	:global(.TipButton:hover .icon > svg) {
-		stroke: #343a40;
+
+	:global(.comment-textarea:focus) {
+		border-color: var(--primary, #3b82f6);
+		background: var(--background, #fff);
+		box-shadow: 0 0 0 3px var(--primary-muted, rgba(59, 130, 246, 0.1));
 	}
+
+	:global(.comment-error) {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		margin: -2px 0 8px;
+		color: var(--destructive, #ef4444);
+		font-size: 12px;
+		text-align: left;
+	}
+
+	:global(.edit-footer) {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+		padding-top: 2px;
+	}
+
+	:global(.color-picker) {
+		display: flex;
+		gap: 6px;
+	}
+
+	:global(.color-swatch) {
+		width: 16px;
+		height: 16px;
+		border-radius: 50%;
+		border: 1px solid rgba(0, 0, 0, 0.05);
+		cursor: pointer;
+		transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+		padding: 0;
+	}
+
+	:global(.color-swatch:hover) {
+		transform: scale(1.2);
+	}
+
+	:global(.color-swatch.active) {
+		box-shadow: 0 0 0 2px var(--background, #fff), 0 0 0 4px var(--primary, #3b82f6);
+	}
+
+	:global(.actions) {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+	}
+
+	:global(.delete-confirm) {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		background: var(--destructive-muted, #fef2f2);
+		padding: 2px 6px;
+		border-radius: 6px;
+		font-size: 12px;
+		color: var(--destructive, #ef4444);
+		font-weight: 500;
+	}
+
+	:global(.confirm-btn, .cancel-btn) {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 22px;
+		height: 22px;
+		border: none;
+		border-radius: 4px;
+		background: transparent;
+		cursor: pointer;
+		color: inherit;
+		padding: 0;
+		transition: all 0.2s ease;
+	}
+
+	:global(.confirm-btn:hover) {
+		background: var(--destructive, #ef4444);
+		color: white;
+	}
+
+	:global(.cancel-btn:hover) {
+		background: rgba(0, 0, 0, 0.05);
+	}
+
 	:global(.TipButton) {
 		display: flex;
 		align-items: center;
-		border: 0px solid;
-		border-radius: 5px;
-		width: 1.7rem;
-		height: 1.7rem;
-
-		background: none;
-		/* Remove background */
-		color: #dee2e6;
-
-		/* Remove border */
-		cursor: pointer;
-		font-size: 1rem;
-		padding: 2px;
-		margin-right: 2px;
-		margin-left: 2px;
-	}
-	:global(.TipButton:hover) {
-		color: #343a40;
-		/*        transform: scale(1.05);*/
-		background-color: #e9ecef;
-	}
-
-	.tip__delete-confirm,
-	.tip__delete-cancel {
+		justify-content: center;
+		gap: 6px;
 		border: none;
+		border-radius: 8px;
+		height: 30px;
+		min-width: 30px;
+		padding: 0 8px;
+		background: transparent;
+		color: var(--muted-foreground, #64748b);
 		cursor: pointer;
-		background: none;
-		color: #555;
-		border: 0px solid;
-		border-radius: 5px;
-		padding: 5px;
-		width: 1.5rem;
+		transition: all 0.2s ease;
+		font-weight: 500;
+		position: relative;
 	}
-	.tip__delete-confirm:hover,
-	.tip__delete-cancel:hover {
-		color: #000;
-		background: #e9ecef;
+
+	:global(.TipButton:hover:not(.disabled)) {
+		color: var(--foreground, #0f172a);
+		background-color: var(--accent, #f1f5f9);
+	}
+
+	:global(.TipButton.primary-action) {
+		color: var(--primary, #3b82f6);
+	}
+
+	:global(.TipButton.primary-action:hover) {
+		background-color: var(--primary-muted, rgba(59, 130, 246, 0.1));
+	}
+
+	:global(.TipButton.disabled) {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	:global(.icon-container) {
+		position: relative;
+		width: 14px;
+		height: 14px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
+	}
+
+	:global(.icon-abs) {
+		position: absolute;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	:global(.separator-v) {
+		width: 1px;
+		height: 18px;
+		background-color: var(--border, #e2e8f0);
+		margin: 0 4px;
+		opacity: 0.5;
+	}
+
+	:global(.separator) {
+		width: 1px;
+		height: 16px;
+		background-color: var(--border, #e2e8f0);
+		margin: 0 6px;
+	}
+
+	:global(.text-animate-wrapper) {
+		display: grid;
+		transition: grid-template-columns 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+	}
+
+	:global(.text-inner) {
+		overflow: hidden;
+		display: flex;
+		align-items: center;
+	}
+
+	:global(.button-text) {
+		font-size: 12px;
+		white-space: nowrap;
 	}
 </style>

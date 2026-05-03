@@ -190,8 +190,21 @@
 {/key}
 
 <style>
-	div {
-		z-index: -1;
+	:global(.PdfHighlighter__highlight-layer) {
 		position: absolute;
+		inset: 0;
+		width: 100%;
+		height: 100%;
+		z-index: 1;
+		pointer-events: none;
+	}
+
+	div {
+		position: absolute;
+		inset: 0;
+		width: 100%;
+		height: 100%;
+		z-index: 1;
+		pointer-events: none;
 	}
 </style>

@@ -92,6 +92,9 @@
 		}
 		return pdfHighlighterUtils.colors?.[0] ?? 'yellow';
 	});
+	const isInteractionBlocked = $derived(
+		Boolean(pdfHighlighterUtils.isHighlightInteractionBlocked?.(highlight.id))
+	);
 
 	let isAllowTextSelection = $state(false);
 	//let delay = pdfHighlighterUtils.textSelectionDelay;
@@ -103,19 +106,30 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-	oncontextmenu={onContextMenu}
+	oncontextmenu={(event) => {
+		if (isInteractionBlocked) {
+			event.preventDefault();
+			event.stopPropagation();
+			return;
+		}
+		onContextMenu?.(event);
+	}}
 	style="mix-blend-mode: {highlightMixBlendMode}"
 	class={isAllowTextSelection ? 'AreaHighlight allowSelect' : 'AreaHighlight'}
+	class:is-active={pdfHighlighterUtils.hoveredHighlightId === highlight.id}
+	class:is-dimmed={pdfHighlighterUtils.hoveredHighlightId &&
+		pdfHighlighterUtils.hoveredHighlightId !== highlight.id}
 	onmouseenter={() => {
-		//pdfHighlighterUtils.setCurrentHighlightId(highlight.id);
+		if (isInteractionBlocked) return;
+		pdfHighlighterUtils.setHoveredHighlightId?.(highlight.id ?? null);
 		if (pdfHighlighterUtils.selectedTool === 'text_selection') {
 			allowTextSelection();
 		}
 	}}
 	onmouseleave={() => {
+		pdfHighlighterUtils.setHoveredHighlightId?.(null);
 		allowTextSelection.cancel();
 		isAllowTextSelection = false;
-		//pdfHighlighterUtils.setCurrentHighlightId(null);
 	}}
 >
 	{#key highlight.position.boundingRect}
@@ -139,13 +153,35 @@
 			}}
 			{bounds}
 			{color}
-			{onClick}
+			onClick={(event: MouseEvent) => {
+				if (isInteractionBlocked) {
+					event.preventDefault();
+					event.stopPropagation();
+					return;
+				}
+				onClick?.(event);
+			}}
 			{isDraggable}
 		></RND>
 	{/key}
 </div>
 
 <style>
+	.AreaHighlight {
+		pointer-events: auto;
+		transition:
+			opacity 0.2s ease-in-out,
+			filter 0.2s ease-in-out;
+	}
+
+	.AreaHighlight.is-active {
+		filter: contrast(1.1) brightness(1.1);
+	}
+
+	.AreaHighlight.is-dimmed {
+		opacity: 0.15 !important;
+	}
+
 	.allowSelect {
 		cursor: text;
 		opacity: 0.8;
