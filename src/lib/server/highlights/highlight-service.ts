@@ -5,6 +5,11 @@ import {
 	rowToCommentedHighlight
 } from '$lib/domain/highlight-mapper';
 import type { CommentedHighlight, Highlight } from '$lib/pdf-highlighter/types';
+import {
+	refineHighlightText,
+	type HighlightTextStatus
+} from '$lib/server/highlights/highlight-text-refiner';
+import type { StoredPageLayout } from '$lib/server/ingestion/liteparse-pages';
 
 type SupabaseErrorLike = {
 	code?: string;
@@ -81,6 +86,71 @@ export async function createHighlightRpc(
 	const { data, error } = await supabase.rpc('create_highlight', payload);
 	if (error) throw error;
 	return rowToCommentedHighlight(data as HighlightRow);
+}
+
+async function resolveHighlightText(
+	supabase: SupabaseClient,
+	documentId: string,
+	highlight: CommentedHighlight
+): Promise<{ text: string; text_status: Exclude<HighlightTextStatus, 'provisional'> }> {
+	if (highlight.type !== 'text' || !highlight.position) {
+		return {
+			text: highlight.content?.text ?? '',
+			text_status: 'fallback'
+		};
+	}
+
+	const pageNumber = highlight.position.boundingRect.pageNumber;
+	const provisionalText = highlight.content?.text ?? '';
+
+	const { data, error } = await supabase
+		.from('document_pages')
+		.select('layout')
+		.eq('document_id', documentId)
+		.eq('page_number', pageNumber)
+		.maybeSingle();
+
+	if (error) {
+		return { text: provisionalText, text_status: 'fallback' };
+	}
+
+	return refineHighlightText({
+		provisionalText,
+		position: highlight.position,
+		layout: (data?.layout as StoredPageLayout | null | undefined) ?? null
+	});
+}
+
+export async function createHighlightWithResolvedText(
+	supabase: SupabaseClient,
+	highlight: CommentedHighlight,
+	opts: {
+		documentId: string;
+		decorative: boolean;
+		colorHex: string;
+	}
+) {
+	const resolution = await resolveHighlightText(supabase, opts.documentId, highlight).catch(() => ({
+		text: highlight.content?.text ?? '',
+		text_status: 'fallback' as const
+	}));
+
+	const created = await createHighlightRpc(
+		supabase,
+		{
+			...highlight,
+			content: {
+				...highlight.content,
+				text: resolution.text
+			}
+		},
+		opts
+	);
+
+	return {
+		...created,
+		text_status: resolution.text_status
+	};
 }
 
 export async function updateHighlight(

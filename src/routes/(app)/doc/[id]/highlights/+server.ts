@@ -2,7 +2,7 @@ import { error, json } from '@sveltejs/kit';
 import { z } from 'zod';
 import type { RequestHandler } from './$types';
 import {
-	createHighlightRpc,
+	createHighlightWithResolvedText,
 	deleteHighlightById,
 	updateHighlight
 } from '$lib/server/highlights/highlight-service';
@@ -40,7 +40,7 @@ const PatchHighlightSchema = z.object({
 	id: z.string().uuid(),
 	category: z.number().int().min(1).max(5).nullable().optional(),
 	color: z.string().optional(),
-	comment: z.string().nullable().optional()
+	comment: z.string().trim().optional()
 });
 
 export const POST: RequestHandler = async ({ locals, params, request }) => {
@@ -52,7 +52,7 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
 	const { highlight, decorative, colorHex } = parsed.data;
 
 	try {
-		const created = await createHighlightRpc(locals.supabase, highlight as any, {
+		const created = await createHighlightWithResolvedText(locals.supabase, highlight as any, {
 			documentId: params.id,
 			decorative,
 			colorHex
