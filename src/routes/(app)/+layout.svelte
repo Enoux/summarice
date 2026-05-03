@@ -1,11 +1,13 @@
 <script lang="ts">
 	import { Button } from '$lib/components/ui/button';
 	import * as Popover from '$lib/components/ui/popover';
-	import { LogOut, User, Settings, LayoutDashboard, Command } from '@lucide/svelte';
+	import { LogOut, User, Settings, LayoutDashboard, Command, Sun, Moon } from '@lucide/svelte';
 	import { page } from '$app/state';
+	import { toggleMode, mode } from 'mode-watcher';
 
 	const { children, data } = $props();
 	const { user, profile } = $derived(data);
+	const currentMode = $derived(mode.current);
 </script>
 
 <div class="flex flex-col bg-muted/30 {page.url.pathname.startsWith('/doc') ? 'h-screen overflow-hidden' : 'min-h-screen'}">
@@ -47,10 +49,10 @@
 			</div>
 
 			<!-- Right: User Account -->
-			<div class="flex items-center gap-2">
+			<div class="flex items-center gap-4">
 				<Popover.Root>
 					<Popover.Trigger
-						class="flex items-center gap-3 rounded-lg px-2 py-1 transition-colors hover:bg-muted/50"
+						class="flex items-center gap-3 rounded-lg py-1 transition-colors hover:bg-muted/50"
 					>
 						<div class="hidden flex-col items-end text-right sm:flex">
 							<span class="text-sm font-bold leading-tight">{profile?.full_name || user?.email?.split('@')[0]}</span>
@@ -69,6 +71,18 @@
 						</form>
 					</Popover.Content>
 				</Popover.Root>
+				<Button 
+					variant="ghost" 
+					size="icon" 
+					class="h-9 w-9 rounded-full border border-border bg-muted text-muted-foreground hover:bg-muted/80" 
+					onclick={() => toggleMode()}
+				>	
+					{#if currentMode === 'dark'}
+						<Sun class="h-5 w-5" />
+					{:else}
+						<Moon class="h-5 w-5" />
+					{/if}
+				</Button>
 				<Button 
 					variant="ghost" 
 					size="icon" 

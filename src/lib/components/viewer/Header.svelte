@@ -11,6 +11,14 @@
 	import { TooltipProvider } from '$lib/components/ui/tooltip';
 	import * as ToggleGroup from "$lib/components/ui/toggle-group";
 	import * as DropdownMenu from "$lib/components/ui/dropdown-menu";
+	import {
+		MAX_ZOOM_SCALE,
+		MIN_ZOOM_SCALE,
+		ZOOM_STEP,
+		normalizeZoomScale,
+		zoomIn,
+		zoomOut
+	} from '$lib/pdf-highlighter/lib/zoom';
 	import { 
 		PanelLeftClose, 
 		PanelLeft, 
@@ -61,7 +69,7 @@
 	const currentScale = $derived.by(() => {
 		const s = utils.currentScale;
 		if (typeof s === 'number' && !Number.isNaN(s)) {
-			return s;
+			return normalizeZoomScale(s);
 		}
 		return 1;
 	});
@@ -211,21 +219,21 @@
 					<DropdownMenu.Content align="center" class="w-44 p-2">
 						<div class="px-2 py-3">
 							<Slider
-								min={0.5}
-								max={3}
-								step={0.05}
+								min={MIN_ZOOM_SCALE}
+								max={MAX_ZOOM_SCALE}
+								step={ZOOM_STEP}
 								value={currentScale}
-								onValueChange={(v) => utils.setCurrentScaleValue?.(Math.round(v * 10) / 10)}
+								onValueChange={(v) => utils.setCurrentScaleValue?.(normalizeZoomScale(v))}
 							/>
 						</div>
 						
 						<DropdownMenu.Separator />
 						
-						<DropdownMenu.Item onclick={() => utils.setCurrentScaleValue?.(Math.min(3, currentScale + 0.1))} closeOnSelect={false}>
+						<DropdownMenu.Item onclick={() => utils.setCurrentScaleValue?.(zoomIn(currentScale))} closeOnSelect={false}>
 							<ZoomIn class="mr-2 size-4" />
 							Zoom In
 						</DropdownMenu.Item>
-						<DropdownMenu.Item onclick={() => utils.setCurrentScaleValue?.(Math.max(0.5, currentScale - 0.1))} closeOnSelect={false}>
+						<DropdownMenu.Item onclick={() => utils.setCurrentScaleValue?.(zoomOut(currentScale))} closeOnSelect={false}>
 							<ZoomOut class="mr-2 size-4" />
 							Zoom Out
 						</DropdownMenu.Item>
@@ -269,11 +277,11 @@
 						</DropdownMenu.RadioGroup>
 						<DropdownMenu.Separator />
 						<DropdownMenu.Label>Zoom</DropdownMenu.Label>
-						<DropdownMenu.Item onclick={() => utils.setCurrentScaleValue?.(Math.min(3, currentScale + 0.1))} closeOnSelect={false}>
+						<DropdownMenu.Item onclick={() => utils.setCurrentScaleValue?.(zoomIn(currentScale))} closeOnSelect={false}>
 							<ZoomIn class="mr-2 size-4" />
 							Zoom In
 						</DropdownMenu.Item>
-						<DropdownMenu.Item onclick={() => utils.setCurrentScaleValue?.(Math.max(0.5, currentScale - 0.1))} closeOnSelect={false}>
+						<DropdownMenu.Item onclick={() => utils.setCurrentScaleValue?.(zoomOut(currentScale))} closeOnSelect={false}>
 							<ZoomOut class="mr-2 size-4" />
 							Zoom Out
 						</DropdownMenu.Item>
