@@ -117,6 +117,7 @@
 	style="mix-blend-mode: {highlightMixBlendMode}"
 	class={isAllowTextSelection ? 'AreaHighlight allowSelect' : 'AreaHighlight'}
 	class:is-active={pdfHighlighterUtils.hoveredHighlightId === highlight.id}
+	class:is-adjusting={isDraggable}
 	class:is-dimmed={pdfHighlighterUtils.hoveredHighlightId &&
 		pdfHighlighterUtils.hoveredHighlightId !== highlight.id}
 	onmouseenter={() => {
@@ -176,6 +177,13 @@
 
 	.AreaHighlight.is-active {
 		filter: contrast(1.1) brightness(1.1);
+	}
+
+	.AreaHighlight.is-adjusting {
+		outline: 2px solid var(--primary, #2563eb);
+		outline-offset: 3px;
+		border-radius: 4px;
+		filter: contrast(1.15) brightness(1.08);
 	}
 
 	.AreaHighlight.is-dimmed {

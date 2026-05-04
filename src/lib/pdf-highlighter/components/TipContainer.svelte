@@ -6,6 +6,8 @@
 	import type {
 		CommentedHighlight,
 		Highlight,
+		HighlightAdjustmentDraft,
+		HighlightPopupActionState,
 		TipContainerState as TTipContainerState
 	} from '$lib/pdf-highlighter/types';
 
@@ -21,6 +23,14 @@
 		) => CommentedHighlight | Promise<CommentedHighlight>;
 		saveHighlightComment?: (highlight: CommentedHighlight, comment: string) => Promise<unknown>;
 		deleteHighlight?: (highlight: CommentedHighlight) => Promise<void>;
+		onExplainFigure?: (highlight: CommentedHighlight) => Promise<void>;
+		onConfirmReExplainFigure?: (highlight: CommentedHighlight) => Promise<void>;
+		onCancelReExplainFigure?: () => void;
+		onStartAdjustHighlight?: (highlight: CommentedHighlight) => void;
+		onSaveAdjustedHighlight?: (draft: HighlightAdjustmentDraft) => Promise<void>;
+		onCancelAdjustHighlight?: () => void;
+		actionState?: HighlightPopupActionState;
+		adjustmentDraft?: HighlightAdjustmentDraft | null;
 
 		highlightPopup?: Snippet<[highlight: Highlight, setPinned: (flag: boolean) => void]>;
 		editHighlightPopup?: Snippet<
@@ -49,6 +59,7 @@
 <script lang="ts">
 	import type { ViewportPosition } from '$lib/pdf-highlighter/types';
 	import { onMount } from 'svelte';
+	import { Check, Info, Move, Save, Sparkles, X } from '@lucide/svelte';
 	import DefaultHighlightPopup from './DefaultHighlightPopup.svelte';
 	import DefaultEditHighlightPopup from './DefaultEditHighlightPopup.svelte';
 	import DefaultNewSelectionPopup from './DefaultNewSelectionPopup.svelte';
@@ -62,6 +73,14 @@
 		prepareHighlightForAdd,
 		saveHighlightComment,
 		deleteHighlight,
+		onExplainFigure,
+		onConfirmReExplainFigure,
+		onCancelReExplainFigure,
+		onStartAdjustHighlight,
+		onSaveAdjustedHighlight,
+		onCancelAdjustHighlight,
+		actionState,
+		adjustmentDraft,
 
 		highlightPopup,
 		editHighlightPopup,
@@ -102,7 +121,9 @@
 	});
 	const usesCommentEditorPlacement = $derived(Boolean(activeHighlight?.id));
 	const placementHeight = $derived(
-		usesCommentEditorPlacement && !pinned ? Math.max(height, COMMENT_EDITOR_PLACEMENT_HEIGHT) : height
+		usesCommentEditorPlacement && !pinned
+			? Math.max(height, COMMENT_EDITOR_PLACEMENT_HEIGHT)
+			: height
 	);
 
 	const activePosition = $derived.by(() => {
@@ -220,6 +241,9 @@
 			// Use capture phase to catch clicks before stopPropagation
 			if (!(e.target instanceof Element) || !e.target.closest('.hl_tip_container')) {
 				clearTextSelection();
+				if (adjustmentDraft) {
+					onCancelAdjustHighlight?.();
+				}
 				hideTip(true);
 			}
 		};
@@ -255,7 +279,9 @@
 		if (saveHighlightComment) {
 			const result = await saveHighlightComment(targetHighlight as CommentedHighlight, comment);
 			if (result && typeof result === 'object' && 'ok' in result && result.ok === false) {
-				throw new Error('message' in result ? String(result.message) : 'Comment could not be saved.');
+				throw new Error(
+					'message' in result ? String(result.message) : 'Comment could not be saved.'
+				);
 			}
 			return;
 		}
@@ -290,6 +316,31 @@
 	function closeTipForce() {
 		hideTip(true);
 	}
+
+	const isSavingAdjustment = $derived.by(() => {
+		const id = adjustmentDraft?.highlightId;
+		const ids = actionState?.savingAdjustedHighlightIds;
+		if (!id || !ids) return false;
+		return ids instanceof Set ? ids.has(id) : ids.includes(id);
+	});
+
+	// Ensure adjustment popup stays open and blocks others
+	$effect(() => {
+		if (adjustmentDraft && !pinned) {
+			setPinnedState(true);
+		}
+	});
+
+	const isConfirmingReExplain = $derived(
+		Boolean(activeHighlight?.id && actionState?.pendingReExplainHighlightId === activeHighlight.id)
+	);
+
+	const isExplainingActive = $derived.by(() => {
+		const id = activeHighlight?.id;
+		const ids = actionState?.explainingHighlightIds;
+		if (!id || !ids) return false;
+		return ids instanceof Set ? ids.has(id) : ids.includes(id);
+	});
 </script>
 
 {#if show && activeHighlight}
@@ -299,7 +350,9 @@
 		class="hl_tip_container"
 		bind:clientHeight={height}
 		bind:clientWidth={width}
-		style="top: {top}px; left: {clampedLeft}px; padding: 3px; visibility: {shouldBeHidden ? 'hidden' : ''};"
+		style="top: {top}px; left: {clampedLeft}px; padding: 3px; visibility: {shouldBeHidden
+			? 'hidden'
+			: ''};"
 		onmouseenter={() => {
 			mouseInPopup = true;
 		}}
@@ -318,7 +371,94 @@
 	>
 		{#if activeHighlight.id}
 			<!-- Existing Highlight -->
-			{#if !pinned}
+			{#if adjustmentDraft?.highlightId === activeHighlight.id}
+				<div
+					class="Highlight__popup action-popup"
+					role="group"
+					aria-label="Adjust highlight area"
+				>
+					<div class="action-popup-copy">
+						<Move size={14} class="description-icon" />
+						<div class="action-popup-description">
+							Confirm the new selection area.
+						</div>
+					</div>
+					<div class="separator-v"></div>
+					<div class="action-popup-actions">
+						<button
+							type="button"
+							class="TipButton hover-action"
+							title="Cancel adjustment"
+							disabled={isSavingAdjustment}
+							onclick={(e) => {
+								e.stopPropagation();
+								onCancelAdjustHighlight?.();
+								closeTipForce();
+							}}><X size={14} /><span>Cancel</span></button
+						>
+						<button
+							type="button"
+							class="TipButton primary-action hover-action"
+							title="Save adjusted area"
+							disabled={isSavingAdjustment || !onSaveAdjustedHighlight}
+							onclick={(e) => {
+								e.stopPropagation();
+								if (adjustmentDraft) void onSaveAdjustedHighlight?.(adjustmentDraft);
+							}}
+							>{#if isSavingAdjustment}<Save size={14} class="animate-pulse" />{:else}<Check
+									size={14}
+								/>{/if}<span>{isSavingAdjustment ? 'Saving...' : 'Save'}</span></button
+						>
+					</div>
+					{#if activeHighlight.id && actionState?.errorsByHighlightId?.[activeHighlight.id]}
+						<div class="action-popup-error" role="alert">
+							{actionState.errorsByHighlightId[activeHighlight.id]}
+						</div>
+					{/if}
+				</div>
+			{:else if isConfirmingReExplain}
+				<div
+					class="Highlight__popup action-popup"
+					role="group"
+					aria-label="Confirm figure re-explanation"
+				>
+					<div class="action-popup-copy">
+						<Info size={14} class="description-icon" />
+						<div class="action-popup-description">
+							Overwrites the current note.
+						</div>
+					</div>
+					<div class="separator-v"></div>
+					<div class="action-popup-actions">
+						<button
+							type="button"
+							class="TipButton hover-action"
+							title="Cancel"
+							disabled={isExplainingActive}
+							onclick={(e) => {
+								e.stopPropagation();
+								onCancelReExplainFigure?.();
+							}}
+						>
+							<X size={14} />
+							<span>Cancel</span>
+						</button>
+						<button
+							type="button"
+							class="TipButton primary-action hover-action"
+							title="Replace AI note"
+							disabled={isExplainingActive || !onConfirmReExplainFigure}
+							onclick={(e) => {
+								e.stopPropagation();
+								void onConfirmReExplainFigure?.(activeHighlight as CommentedHighlight);
+							}}
+						>
+							<Sparkles size={14} class={isExplainingActive ? 'animate-pulse' : ''} />
+							<span>{isExplainingActive ? 'Replacing...' : 'Replace'}</span>
+						</button>
+					</div>
+				</div>
+			{:else if !pinned}
 				{#if highlightPopup}
 					{@render highlightPopup(activeHighlight, setPinnedState)}
 				{:else}
@@ -326,28 +466,31 @@
 						highlight={activeHighlight}
 						setPinned={setPinnedState}
 						onDeleteHighlight={handleHighlightDelete}
+						onExplainFigure={onExplainFigure
+							? (h) => onExplainFigure(h as CommentedHighlight)
+							: undefined}
+						onAdjustHighlight={(h) => onStartAdjustHighlight?.(h as CommentedHighlight)}
+						{actionState}
 					/>
 				{/if}
+			{:else if editHighlightPopup}
+				{@render editHighlightPopup(
+					activeHighlight,
+					colors,
+					(comment) => handleCommentEdit(activeHighlight, comment),
+					(h) => {
+						void handleCommentEdit(h, '');
+					},
+					(colorIndex) => handleColorChange(activeHighlight, colorIndex)
+				)}
 			{:else}
-				{#if editHighlightPopup}
-					{@render editHighlightPopup(
-						activeHighlight,
-						colors,
-						(comment) => handleCommentEdit(activeHighlight, comment),
-						(h) => {
-							void handleCommentEdit(h, '');
-						},
-						(colorIndex) => handleColorChange(activeHighlight, colorIndex)
-					)}
-				{:else}
-					<DefaultEditHighlightPopup
-						highlight={activeHighlight}
-						{colors}
-						onEdit={(comment) => handleCommentEdit(activeHighlight, comment)}
-						onClose={closeTipForce}
-						onColorChange={(colorIndex) => handleColorChange(activeHighlight, colorIndex)}
-					/>
-				{/if}
+				<DefaultEditHighlightPopup
+					highlight={activeHighlight}
+					{colors}
+					onEdit={(comment) => handleCommentEdit(activeHighlight, comment)}
+					onClose={closeTipForce}
+					onColorChange={(colorIndex) => handleColorChange(activeHighlight, colorIndex)}
+				/>
 			{/if}
 		{:else}
 			<!-- New Selection -->
@@ -422,6 +565,61 @@
 		backdrop-filter: blur(12px);
 		-webkit-backdrop-filter: blur(12px);
 		transform-origin: center bottom;
+	}
+
+	:global(.Highlight__popup.action-popup) {
+		align-items: center;
+		gap: 6px;
+		padding: 6px;
+		width: max-content;
+		max-width: 480px;
+	}
+
+	.action-popup-copy {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		min-width: 0;
+		padding: 0 4px;
+		text-align: left;
+	}
+
+	:global(.description-icon) {
+		color: var(--muted-foreground, #64748b);
+		flex-shrink: 0;
+		opacity: 0.8;
+	}
+
+	.action-popup-copy.compact {
+		white-space: nowrap;
+	}
+
+	.action-popup-title {
+		color: var(--foreground, #0f172a);
+		font-size: 12px;
+		font-weight: 700;
+		line-height: 1.2;
+	}
+
+	.action-popup-description {
+		color: var(--muted-foreground, #64748b);
+		line-height: 1.1;
+		white-space: nowrap;
+		padding-left: 2px;
+	}
+
+	.action-popup-actions {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		flex-shrink: 0;
+	}
+
+	.action-popup-error {
+		max-width: 220px;
+		color: var(--destructive, #ef4444);
+		font-size: 12px;
+		text-align: left;
 	}
 
 	:global(.EditPopup) {
@@ -499,7 +697,9 @@
 	}
 
 	:global(.color-swatch.active) {
-		box-shadow: 0 0 0 2px var(--background, #fff), 0 0 0 4px var(--primary, #3b82f6);
+		box-shadow:
+			0 0 0 2px var(--background, #fff),
+			0 0 0 4px var(--primary, #3b82f6);
 	}
 
 	:global(.actions) {
@@ -553,29 +753,31 @@
 		border-radius: 8px;
 		height: 30px;
 		min-width: 30px;
-		padding: 0 8px;
+		padding: 0 10px;
 		background: transparent;
 		color: var(--muted-foreground, #64748b);
 		cursor: pointer;
 		transition: all 0.2s ease;
 		font-weight: 500;
 		position: relative;
+		white-space: nowrap;
 	}
 
-	:global(.TipButton:hover:not(.disabled)) {
+	:global(.TipButton:hover:not(:disabled)) {
 		color: var(--foreground, #0f172a);
 		background-color: var(--accent, #f1f5f9);
 	}
 
 	:global(.TipButton.primary-action) {
 		color: var(--primary, #3b82f6);
+		font-weight: 600;
 	}
 
 	:global(.TipButton.primary-action:hover) {
 		background-color: var(--primary-muted, rgba(59, 130, 246, 0.1));
 	}
 
-	:global(.TipButton.disabled) {
+	:global(.TipButton:disabled) {
 		opacity: 0.5;
 		cursor: not-allowed;
 	}
@@ -599,10 +801,11 @@
 
 	:global(.separator-v) {
 		width: 1px;
-		height: 18px;
+		align-self: stretch;
 		background-color: var(--border, #e2e8f0);
-		margin: 0 4px;
+		margin: 4px 4px;
 		opacity: 0.5;
+		flex-shrink: 0;
 	}
 
 	:global(.separator) {

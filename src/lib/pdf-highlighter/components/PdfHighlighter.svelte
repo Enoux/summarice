@@ -11,7 +11,9 @@
 	import type {
 		ViewportHighlight as ModuleViewportHighlight,
 		CommentedHighlight as ModuleCommentedHighlight,
-		PdfHighlighterUtils as ModulePdfHighlighterUtils
+		PdfHighlighterUtils as ModulePdfHighlighterUtils,
+		HighlightAdjustmentDraft as ModuleHighlightAdjustmentDraft,
+		HighlightPopupActionState as ModuleHighlightPopupActionState
 	} from '$lib/pdf-highlighter/types';
 	import type { PdfHighlighterTheme } from '$lib/pdf-highlighter/lib/theme';
 	type PDFViewerOptions = Record<string, unknown>;
@@ -53,6 +55,15 @@
 			comment: string
 		) => Promise<unknown>;
 		deleteHighlight?: (highlight: ModuleCommentedHighlight) => Promise<void>;
+		onExplainFigure?: (highlight: ModuleCommentedHighlight) => Promise<void>;
+		onConfirmReExplainFigure?: (highlight: ModuleCommentedHighlight) => Promise<void>;
+		onCancelReExplainFigure?: () => void;
+		onStartAdjustHighlight?: (highlight: ModuleCommentedHighlight) => void;
+		onSaveAdjustedHighlight?: (draft: ModuleHighlightAdjustmentDraft) => Promise<void>;
+		onCancelAdjustHighlight?: () => void;
+		onUpdateAdjustmentDraft?: (draft: ModuleHighlightAdjustmentDraft) => void;
+		actionState?: ModuleHighlightPopupActionState;
+		adjustmentDraft?: ModuleHighlightAdjustmentDraft | null;
 	}
 </script>
 
@@ -106,7 +117,7 @@
 	import {
 		isPresetZoomValue,
 		normalizeZoomScale,
-		normalizeZoomValue,
+		normalizeZoomValue
 	} from '$lib/pdf-highlighter/lib/zoom';
 
 	type PointerEventHandler = (
@@ -156,7 +167,16 @@
 		scaleOnResize = false,
 		prepareHighlightForAdd,
 		saveHighlightComment,
-		deleteHighlight
+		deleteHighlight,
+		onExplainFigure,
+		onConfirmReExplainFigure,
+		onCancelReExplainFigure,
+		onStartAdjustHighlight,
+		onSaveAdjustedHighlight,
+		onCancelAdjustHighlight,
+		onUpdateAdjustmentDraft,
+		actionState,
+		adjustmentDraft
 	}: pdfHighlighterProps = $props();
 
 	let resolvedTheme = $derived(resolvePdfHighlighterTheme(userTheme));
@@ -679,11 +699,11 @@
 			const pageElement = pageView?.div as HTMLElement | undefined;
 			if (!pageViewport || !pageElement) return;
 
-				// Remove scroll listener in case user auto-scrolls in succession.
-				viewerRef.container.removeEventListener('scroll', handleScroll);
-				if (useFlash && highlight.id) {
-					this.scrolledToHighlightIdRef = highlight.id;
-				}
+			// Remove scroll listener in case user auto-scrolls in succession.
+			viewerRef.container.removeEventListener('scroll', handleScroll);
+			if (useFlash && highlight.id) {
+				this.scrolledToHighlightIdRef = highlight.id;
+			}
 
 			const viewportHighlight = scaledToViewport(boundingRect, pageViewport, usePdfCoordinates);
 			const container = viewerRef.container;
@@ -788,11 +808,7 @@
 		setTip: () => {},
 
 		pageLayout: { spreadMode: 0, scrollMode: 0 },
-		setPageLayout: (opts: {
-			spreadMode?: number;
-			scrollMode?: number;
-			pagesRotation?: number;
-		}) => {
+		setPageLayout: (opts: { spreadMode?: number; scrollMode?: number; pagesRotation?: number }) => {
 			if (!viewerRef) return;
 			if (opts.spreadMode !== undefined) viewerRef.spreadMode = opts.spreadMode;
 			if (opts.scrollMode !== undefined) viewerRef.scrollMode = opts.scrollMode;
@@ -883,6 +899,8 @@
 		onContextMenu={onHighlightContextMenu}
 		onClick={onHighlightClick}
 		{pdfHighlighterUtils}
+		{adjustmentDraft}
+		{onUpdateAdjustmentDraft}
 	/>
 {/snippet}
 
@@ -936,6 +954,14 @@
 			{prepareHighlightForAdd}
 			{saveHighlightComment}
 			{deleteHighlight}
+			{onExplainFigure}
+			{onConfirmReExplainFigure}
+			{onCancelReExplainFigure}
+			{onStartAdjustHighlight}
+			{onSaveAdjustedHighlight}
+			{onCancelAdjustHighlight}
+			{actionState}
+			{adjustmentDraft}
 			{highlightsStore}
 			{highlightPopup}
 			{editHighlightPopup}
@@ -956,7 +982,7 @@
 			onMouseUp={() => {}}
 			onSelection={(viewportPosition, scaledPosition, _image) => {
 				const raw: CommentedHighlight = {
-					content: {},
+					content: _image ? { image: _image } : {},
 					type: 'area',
 					position: scaledPosition,
 					color_index: pdfHighlighterUtils.selectedColorIndex
