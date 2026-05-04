@@ -4,13 +4,12 @@ The **AI Provider Port**. All model calls go through here — no direct `fetch()
 
 ## What goes here
 
-- A thin port interface (`generate`, `embed`, `stream`) that hides provider-specific details.
-- Adapters for **Gemini 3 Flash** (text generation, structured output, streaming) and **OpenAI text-embedding-3-small** (embeddings).
-- Prompt templates and prompt builders, scoped per use-case (summary, figure interpretation, deep agent).
-- Stream normalization so the rest of the app sees a uniform chunk shape regardless of provider.
-- A telemetry wrapper that writes one row to `llm_calls` per model invocation.
+- A thin port interface (`generate`, `embed`, `vision`, `stream`) that hides provider-specific details.
+- Adapters for **OpenRouter** (bridging to **Gemini 3 Flash** for generation/vision and **OpenAI** for embeddings).
+- Telemetry integration via `llm_calls` table tracking tokens, latency, and cost.
+- Stream normalization ensuring uniform chunk shapes across different models.
 
 ## Status
 
-Currently providing the interface for AI interactions across the app.
+**🟢 Operational**. The provider is used for figure interpretation and is ready for summary generation and deep chat features.
 

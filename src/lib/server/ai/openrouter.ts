@@ -5,6 +5,7 @@ import type { ModelMessage, UserModelMessage } from 'ai';
 import {
 	estimateCostUsd,
 	normalizeStreamChunk,
+	providerReportedCostUsdFromMetadata,
 	usageFromEmbeddingModelUsage,
 	usageFromLanguageModelUsage,
 	withTelemetry
@@ -49,6 +50,14 @@ export function createOpenRouterLLMProvider(options: OpenRouterLLMProviderOption
 		return model ?? options.defaultModel ?? DEFAULT_MODEL;
 	}
 
+	function openRouterLanguageModel(modelId: string) {
+		return openrouter(modelId, {
+			usage: {
+				include: true
+			}
+		});
+	}
+
 	function visionModel(model?: string) {
 		return model ?? options.visionModel ?? options.defaultModel ?? DEFAULT_VISION_MODEL;
 	}
@@ -76,7 +85,7 @@ export function createOpenRouterLLMProvider(options: OpenRouterLLMProviderOption
 			pricing: options.pricing?.generate,
 			call: async () => {
 				const result = await generateText({
-					model: openrouter(modelId),
+					model: openRouterLanguageModel(modelId),
 					system: generateOptions.system,
 					messages: generateOptions.messages,
 					tools: generateOptions.tools,
@@ -93,7 +102,9 @@ export function createOpenRouterLLMProvider(options: OpenRouterLLMProviderOption
 						object: 'object' in result ? (result.object as T | undefined) : undefined,
 						usage: usageFromLanguageModelUsage(result.usage)
 					},
-					usage: usageFromLanguageModelUsage(result.usage)
+					usage: usageFromLanguageModelUsage(result.usage),
+					providerMetadata: result.providerMetadata,
+					costUsd: providerReportedCostUsdFromMetadata(result.providerMetadata)
 				};
 			}
 		});
@@ -112,7 +123,7 @@ export function createOpenRouterLLMProvider(options: OpenRouterLLMProviderOption
 		const signal = combineSignals(streamOptions.abortSignal);
 
 		const result = streamText({
-			model: openrouter(modelId),
+			model: openRouterLanguageModel(modelId),
 			system: streamOptions.system,
 			messages: streamOptions.messages,
 			tools: streamOptions.tools,
@@ -127,6 +138,7 @@ export function createOpenRouterLLMProvider(options: OpenRouterLLMProviderOption
 		});
 
 		const telemetry = result.usage.then(async (usage) => {
+			const providerMetadata = await result.providerMetadata;
 			const normalizedUsage = usageFromLanguageModelUsage(usage) ?? settledUsage;
 			const callTelemetry: LLMCallTelemetry = {
 				provider: providerName,
@@ -137,6 +149,8 @@ export function createOpenRouterLLMProvider(options: OpenRouterLLMProviderOption
 				highlightId: streamOptions.highlightId,
 				latencyMs: Math.round(performance.now() - startedAt),
 				usage: normalizedUsage,
+				providerMetadata,
+				costUsd: providerReportedCostUsdFromMetadata(providerMetadata),
 				estimatedCostUsd: estimateCostUsd(normalizedUsage, options.pricing?.generate)
 			};
 

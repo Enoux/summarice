@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { estimateCostUsd, normalizeStreamChunk, usageFromLanguageModelUsage } from './telemetry';
+import {
+	estimateCostUsd,
+	normalizeStreamChunk,
+	providerReportedCostUsdFromMetadata,
+	usageFromLanguageModelUsage
+} from './telemetry';
 
 describe('AI provider telemetry and stream normalization', () => {
 	it('normalizes stream chunks to a provider-independent shape', () => {
@@ -57,5 +62,38 @@ describe('AI provider telemetry and stream normalization', () => {
 				{ inputPerMillion: 0.1, outputPerMillion: 0.4 }
 			)
 		).toBe(0.3);
+	});
+
+	it('extracts provider-reported OpenRouter cost from provider metadata only', () => {
+		expect(
+			providerReportedCostUsdFromMetadata({
+				openrouter: {
+					usage: {
+						cost: 0.0042,
+						totalTokens: 123
+					}
+				}
+			})
+		).toBe(0.0042);
+
+		expect(
+			providerReportedCostUsdFromMetadata({
+				anthropic: {
+					usage: {
+						cost: 9
+					}
+				}
+			})
+		).toBeUndefined();
+
+		expect(
+			providerReportedCostUsdFromMetadata({
+				openrouter: {
+					usage: {
+						cost: '0.0042'
+					}
+				}
+			})
+		).toBeUndefined();
 	});
 });

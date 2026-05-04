@@ -52,6 +52,21 @@ export function estimateCostUsd(usage: LLMUsage, pricing: LLMPricing | undefined
 	return total > 0 ? Number(total.toFixed(8)) : undefined;
 }
 
+export function providerReportedCostUsdFromMetadata(
+	providerMetadata: unknown
+): number | undefined {
+	if (!providerMetadata || typeof providerMetadata !== 'object') return undefined;
+
+	const openrouter = (providerMetadata as { openrouter?: unknown }).openrouter;
+	if (!openrouter || typeof openrouter !== 'object') return undefined;
+
+	const usage = (openrouter as { usage?: unknown }).usage;
+	if (!usage || typeof usage !== 'object') return undefined;
+
+	const cost = (usage as { cost?: unknown }).cost;
+	return typeof cost === 'number' && Number.isFinite(cost) ? cost : undefined;
+}
+
 export function normalizeStreamChunk(chunk: unknown, index: number): LLMStreamChunk | undefined {
 	if (!chunk || typeof chunk !== 'object') return undefined;
 
@@ -116,7 +131,12 @@ export async function withTelemetry<T>(options: {
 	context: LLMCallContext;
 	hooks?: LLMTelemetryHooks;
 	pricing?: LLMPricing;
-	call: () => Promise<{ value: T; usage: LLMUsage }>;
+	call: () => Promise<{
+		value: T;
+		usage: LLMUsage;
+		providerMetadata?: LLMCallTelemetry['providerMetadata'];
+		costUsd?: number;
+	}>;
 }): Promise<{ value: T; telemetry: LLMCallTelemetry }> {
 	const startedAt = performance.now();
 	const base = {
@@ -136,6 +156,8 @@ export async function withTelemetry<T>(options: {
 			...base,
 			latencyMs: Math.round(performance.now() - startedAt),
 			usage: result.usage,
+			providerMetadata: result.providerMetadata,
+			costUsd: result.costUsd,
 			estimatedCostUsd: estimateCostUsd(result.usage, options.pricing)
 		};
 

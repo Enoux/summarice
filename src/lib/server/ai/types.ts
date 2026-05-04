@@ -29,6 +29,8 @@ export type LLMCallTelemetry = {
 	operation: LLMOperation;
 	latencyMs: number;
 	usage: LLMUsage;
+	providerMetadata?: JSONValue;
+	costUsd?: number;
 	estimatedCostUsd?: number;
 	ownerId?: string;
 	documentId?: string;
@@ -37,12 +39,15 @@ export type LLMCallTelemetry = {
 
 export type LLMTelemetryHooks = {
 	onStart?: (
-		call: Omit<LLMCallTelemetry, 'latencyMs' | 'usage' | 'estimatedCostUsd'>
+		call: Omit<LLMCallTelemetry, 'latencyMs' | 'usage' | 'providerMetadata' | 'costUsd' | 'estimatedCostUsd'>
 	) => void | Promise<void>;
 	onFinish?: (call: LLMCallTelemetry) => void | Promise<void>;
 	onError?: (
 		error: unknown,
-		call: Omit<LLMCallTelemetry, 'latencyMs' | 'usage' | 'estimatedCostUsd'> & { latencyMs: number }
+		call: Omit<
+			LLMCallTelemetry,
+			'latencyMs' | 'usage' | 'providerMetadata' | 'costUsd' | 'estimatedCostUsd'
+		> & { latencyMs: number }
 	) => void | Promise<void>;
 };
 
