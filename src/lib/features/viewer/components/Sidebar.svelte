@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { CommentedHighlight } from '$lib/pdf-highlighter/types';
+	import type { PdfHighlighterUtils } from '$lib/pdf-highlighter';
 	import { HighlightsModel } from '$lib/pdf-highlighter';
 	import HighlightListItem from '$lib/features/highlights/components/HighlightListItem.svelte';
 	import { Search, RotateCcw, MessageSquare, LayoutList } from '@lucide/svelte';
@@ -19,6 +20,7 @@
 		width?: number;
 		categoryLabels: string[];
 		decorativeMode: boolean;
+		viewerColorMode: 'light' | 'dark';
 		onPersistDelete: (h: CommentedHighlight) => Promise<void>;
 		onRecategorize: (
 			h: CommentedHighlight,
@@ -31,6 +33,7 @@
 		onDeleteAnnotation: (h: CommentedHighlight, id: string) => Promise<void>;
 
 		selectedHighlightId?: string | null;
+		viewerUtils?: Partial<PdfHighlighterUtils>;
 	}
 
 	let {
@@ -40,6 +43,7 @@
 		width = $bindable(420),
 		categoryLabels,
 		decorativeMode,
+		viewerColorMode,
 		onPersistDelete,
 		onRecategorize,
 		onResetAll,
@@ -47,12 +51,26 @@
 		onUpdateAnnotation,
 		onDeleteAnnotation,
 
-		selectedHighlightId = $bindable(null)
+		selectedHighlightId = $bindable(null),
+		viewerUtils
 	}: Props = $props();
 
 	let query = $state('');
 	let activeTab = $state('highlights');
 	let isResizing = $state(false);
+
+	let activeSummaryCitations = $state<any[]>([]);
+	let summaryHighlightIdToScrollTo = $state<string | null>(null);
+
+	const citationCounts = $derived.by(() => {
+		const counts: Record<string, number> = {};
+		for (const c of activeSummaryCitations) {
+			if (c.highlight_id) {
+				counts[c.highlight_id] = (counts[c.highlight_id] || 0) + 1;
+			}
+		}
+		return counts;
+	});
 
 	const filtered = $derived.by((): CommentedHighlight[] => {
 		const q = query.trim().toLowerCase();
@@ -170,12 +188,18 @@
 							{onRecategorize}
 							{categoryLabels}
 							{decorativeMode}
+							{viewerColorMode}
 							{onAddAnnotation}
 							{onUpdateAnnotation}
 							{onDeleteAnnotation}
 
 							selected={selectedHighlightId === (h.id ?? null)}
 							onHover={(id) => highlightsStore.setHoveredHighlightId(id)}
+							citationCount={citationCounts[h.id!] ?? 0}
+							onNavigateToSummary={() => {
+								activeTab = 'summary';
+								summaryHighlightIdToScrollTo = h.id!;
+							}}
 						/>
 					{:else}
 						<div class="flex flex-col items-center justify-center space-y-3 py-20 text-center">
@@ -208,10 +232,19 @@
 					</Button>
 				</div>
 			{/if}
-		{:else if PUBLIC_MOCK_COMPONENTS === 'true'}
-			<MockSummary />
 		{:else}
-			<Summary />
+			<Summary
+				highlights={highlightsStore.highlights}
+				{viewerUtils}
+				{viewerColorMode}
+				onJumpToHighlight={(id) => {
+					selectedHighlightId = id;
+					activeTab = 'highlights';
+					document.getElementById(`sidebar-highlight-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+				}}
+				bind:activeCitations={activeSummaryCitations}
+				bind:scrollToHighlightId={summaryHighlightIdToScrollTo}
+			/>
 		{/if}
 	</div>
 </aside>

@@ -1,10 +1,13 @@
 <script lang="ts">
 	import type { CommentedHighlight } from '$lib/pdf-highlighter/types';
-	import { Trash2, ChevronDown, ExternalLink, MessageSquare } from '@lucide/svelte';
+	import { Trash2, ChevronDown, ExternalLink, MessageSquare, Sparkles } from '@lucide/svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
 	import {
 		DEFAULT_SLOT_HEX,
+		canonicalHighlightPalette,
+		resolveHighlightColor,
+		resolveHighlightPalette,
 		type CategorySlotId,
 		CATEGORY_SLOT_IDS
 	} from '$lib/features/highlights/domain/highlight-categories';
@@ -18,12 +21,16 @@
 		onRecategorize?: (h: CommentedHighlight, category: number | null, color: string) => void;
 		categoryLabels: string[];
 		decorativeMode: boolean;
+		viewerColorMode: 'light' | 'dark';
 		onAddAnnotation: (h: CommentedHighlight, body: string) => Promise<void>;
 		onUpdateAnnotation: (h: CommentedHighlight, id: string, body: string) => Promise<void>;
 		onDeleteAnnotation: (h: CommentedHighlight, id: string) => Promise<void>;
 
 		selected?: boolean;
 		onHover?: (id: string | null) => void;
+		
+		citationCount?: number;
+		onNavigateToSummary?: () => void;
 	}
 
 	let {
@@ -33,12 +40,15 @@
 		onRecategorize,
 		categoryLabels,
 		decorativeMode,
+		viewerColorMode,
 		onAddAnnotation,
 		onUpdateAnnotation,
 		onDeleteAnnotation,
 
 		selected = false,
-		onHover
+		onHover,
+		citationCount = 0,
+		onNavigateToSummary
 	}: Props = $props();
 
 	const page = $derived(highlight.position?.boundingRect.pageNumber ?? '—');
@@ -61,6 +71,14 @@
 	let isTextExpanded = $state(false);
 	let isCommentExpanded = $state(false);
 	let decoColor = $state(highlight.display_color ?? '#facc15');
+	const displaySlotHexList = $derived(resolveHighlightPalette(viewerColorMode));
+	const highlightDisplayColor = $derived.by(() => {
+		if (highlight.display_color) {
+			return resolveHighlightColor(highlight.display_color, viewerColorMode);
+		}
+		const slotIndex = Math.min(Math.max(highlight.color_index ?? 0, 0), displaySlotHexList.length - 1);
+		return displaySlotHexList[slotIndex] ?? 'var(--muted)';
+	});
 
 
 	$effect(() => {
@@ -71,7 +89,7 @@
 	function handleRecategorize(slot: number) {
 		if (!onRecategorize || !highlight.id) return;
 		const categorySlot = slot as CategorySlotId;
-		const hex = DEFAULT_SLOT_HEX[categorySlot];
+		const hex = canonicalHighlightPalette()[categorySlot - 1] ?? DEFAULT_SLOT_HEX[categorySlot];
 		onRecategorize(highlight, categorySlot, hex);
 	}
 
@@ -166,8 +184,7 @@
 											variant="ghost"
 											size="xs"
 											class="h-auto rounded-full px-2 py-0.5 text-[10px] font-medium transition-all hover:brightness-95 active:scale-95 "
-											style="background-color: {highlight.display_color ??
-												'var(--muted)'}; color: #111;"
+											style="background-color: {highlightDisplayColor}; color: #111;"
 											onclick={(e) => e.stopPropagation()}
 										>
 											{badgeLabel}
@@ -183,7 +200,8 @@
 										>
 											<div
 												class="size-2 rounded-full"
-												style="background-color: {DEFAULT_SLOT_HEX[slot]}"
+												style="background-color: {displaySlotHexList[slot - 1] ??
+													DEFAULT_SLOT_HEX[slot]}"
 											></div>
 											<span class="flex-1">{categoryLabels[slot - 1] ?? `Slot ${slot}`}</span>
 											{#if highlight.category_slot === slot}
@@ -197,7 +215,7 @@
 					{:else}
 						<span
 							class="rounded-full px-2 py-0.5 text-[10px] font-bold"
-							style="background-color: {highlight.display_color ?? 'var(--muted)'}; color: #111;"
+							style="background-color: {highlightDisplayColor}; color: #111;"
 						>
 							{badgeLabel}
 						</span>
@@ -209,6 +227,27 @@
 						>
 							<span class="size-1 rounded-full bg-primary"></span>
 							REFINING
+						</span>
+					{/if}
+
+					{#if citationCount > 0}
+						<button
+							type="button"
+							class="flex items-center gap-1.5 rounded-full bg-orange-500/10 px-2 py-0.5 text-[10px] font-bold text-orange-600 transition-colors hover:bg-orange-500/20 dark:text-orange-500"
+							onclick={(e) => {
+								e.stopPropagation();
+								onNavigateToSummary?.();
+							}}
+							title="Click to see where this is cited in the summary"
+						>
+							<Sparkles class="size-2.5" />
+							CITED ×{citationCount}
+						</button>
+					{:else}
+						<span
+							class="flex items-center gap-1.5 rounded-full bg-muted px-2 py-0.5 text-[10px] font-bold text-muted-foreground/60"
+						>
+							UNCITED
 						</span>
 					{/if}
 				</div>
