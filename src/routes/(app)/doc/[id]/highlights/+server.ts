@@ -1,9 +1,11 @@
 import { error, json } from '@sveltejs/kit';
 import { z } from 'zod';
 import type { RequestHandler } from './$types';
+import type { CommentedHighlight } from '$lib/pdf-highlighter/types';
 import {
 	createHighlightWithResolvedText,
 	deleteHighlightById,
+	updateAreaHighlightScreenshot,
 	updateHighlight
 } from '$lib/server/highlights/highlight-service';
 
@@ -26,7 +28,7 @@ const CreateHighlightSchema = z.object({
 			rects: z.array(ScaledSchema).default([]),
 			usePdfCoordinates: z.boolean().optional()
 		}),
-		content: z.object({ text: z.string().optional(), image: z.string().optional() }).optional(),
+		content: z.object({ text: z.string().optional(), image: z.string().optional() }).default({}),
 		comment: z.string().optional(),
 		color_index: z.number().int().min(0).max(4).optional(),
 		category_slot: z.number().int().min(1).max(5).nullable().optional(),
@@ -40,7 +42,17 @@ const PatchHighlightSchema = z.object({
 	id: z.string().uuid(),
 	category: z.number().int().min(1).max(5).nullable().optional(),
 	color: z.string().optional(),
-	comment: z.string().trim().optional()
+	comment: z.string().trim().optional(),
+	position: z
+		.object({
+			boundingRect: ScaledSchema,
+			rects: z.array(ScaledSchema).default([]),
+			usePdfCoordinates: z.boolean().optional()
+		})
+		.optional(),
+	content: z.object({ image: z.string().regex(/^data:image\/png;base64,/i) }).optional()
+}).refine((value) => Boolean(value.position) === Boolean(value.content?.image), {
+	message: 'Area adjustment requires position and content.image'
 });
 
 export const POST: RequestHandler = async ({ locals, params, request }) => {
@@ -52,8 +64,9 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
 	const { highlight, decorative, colorHex } = parsed.data;
 
 	try {
-		const created = await createHighlightWithResolvedText(locals.supabase, highlight as any, {
+		const created = await createHighlightWithResolvedText(locals.supabase, highlight as CommentedHighlight, {
 			documentId: params.id,
+			userId: locals.user.id,
 			decorative,
 			colorHex
 		});
@@ -73,6 +86,17 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 	const { id, ...patch } = parsed.data;
 
 	try {
+		if (patch.position || patch.content?.image) {
+			if (!patch.position || !patch.content?.image) error(400, 'Invalid area adjustment payload');
+			const highlight = await updateAreaHighlightScreenshot(locals.supabase, {
+				id,
+				documentId: params.id,
+				userId: locals.user.id,
+				position: patch.position,
+				imageDataUrl: patch.content.image
+			});
+			return json({ ok: true, highlight });
+		}
 		await updateHighlight(locals.supabase, id, params.id, patch);
 		return json({ ok: true });
 	} catch (e) {

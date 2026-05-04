@@ -322,7 +322,7 @@
 		if (!res.ok) throw new Error('Failed to add annotation');
 		const newAnn = await res.json();
 		const annotations = [...(h.annotations ?? []), newAnn];
-		highlightsStore.editHighlight(h.id, { annotations } as any);
+		highlightsStore.editHighlight(h.id, { annotations } as Partial<CommentedHighlight>);
 	}
 
 	function appendAnnotation(h: CommentedHighlight, annotation: Annotation) {
@@ -579,7 +579,7 @@
 		if (!res.ok) throw new Error('Failed to update annotation');
 		const updatedAnn = await res.json();
 		const annotations = (h.annotations ?? []).map((a) => (a.id === id ? updatedAnn : a));
-		highlightsStore.editHighlight(h.id!, { annotations } as any);
+		highlightsStore.editHighlight(h.id!, { annotations } as Partial<CommentedHighlight>);
 	}
 
 	async function deleteAnnotation(h: Highlight, id: string) {
@@ -588,7 +588,7 @@
 		});
 		if (!res.ok) throw new Error('Failed to delete annotation');
 		const annotations = (h.annotations ?? []).filter((a) => a.id !== id);
-		highlightsStore.editHighlight(h.id!, { annotations } as any);
+		highlightsStore.editHighlight(h.id!, { annotations } as Partial<CommentedHighlight>);
 	}
 
 	function handleKeyDown(e: KeyboardEvent) {
