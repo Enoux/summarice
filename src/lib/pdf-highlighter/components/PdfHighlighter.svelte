@@ -81,6 +81,8 @@
 		ViewportPosition,
 		Content,
 		CommentedHighlight,
+		LTWHP,
+		Page,
 		PdfHighlighterUtils as TPdfHighlighterUtils,
 		TipContainerState as TTipContainerState,
 		PdfScaleValue
@@ -113,6 +115,8 @@
 	} from 'pdfjs-dist/web/pdf_viewer.mjs';
 	import { debounce } from '$lib/pdf-highlighter/utils';
 	import { resolvePdfHighlighterTheme } from '$lib/pdf-highlighter/lib/theme';
+	import { canonicalHighlightPalette } from '$lib/features/highlights/domain/highlight-categories';
+	import trimClientRectsToText from '$lib/pdf-highlighter/pdf_utils/trim-client-rects-to-text';
 	import { getHighlightScrollTargetState } from '$lib/pdf-highlighter/lib/scroll-target';
 	import {
 		isPresetZoomValue,
@@ -216,6 +220,15 @@
 	let findController_instance: TPDFFindController;
 	let clearScrollFlashTimeout: ReturnType<typeof setTimeout> | null = null;
 	let activeScrollTargetRef: { highlightId?: string; targetTop: number } | null = null;
+
+	const trimSelectionRectsToText = (rects: LTWHP[], pages: Page[]): LTWHP[] => {
+		return pages.flatMap((page) => {
+			const pageRects = rects.filter((rect) => rect.pageNumber === page.number);
+			if (pageRects.length === 0) return [];
+			const textLayer = page.node.querySelector('.textLayer') as HTMLElement | null;
+			return trimClientRectsToText(pageRects, page.node, textLayer);
+		});
+	};
 
 	const defaultSearchOptions: SearchOptions = {
 		type: 'again',
@@ -495,7 +508,7 @@
 		const pages = getPagesFromRange(range);
 		if (!pages || pages.length === 0) return;
 
-		const rects = getClientRects(range, pages);
+		const rects = trimSelectionRectsToText(getClientRects(range, pages), pages);
 		if (rects.length === 0) return;
 
 		const viewportPosition: ViewportPosition = {
@@ -686,9 +699,23 @@
 		selection.removeAllRanges();
 	};
 
+	function pulseHighlight(highlight_id: string) {
+		if (!highlight_id) return;
+		baseUtils.scrolledToHighlightIdRef = highlight_id;
+		if (clearScrollFlashTimeout) clearTimeout(clearScrollFlashTimeout);
+		clearScrollFlashTimeout = setTimeout(() => {
+			baseUtils.scrolledToHighlightIdRef = '';
+			clearScrollFlashTimeout = null;
+		}, 800); // 800ms for a more visible flash
+	}
+
 	const baseUtils = {
 		search: search,
 		searchState: { matchesCount: { current: 0, total: 0 } },
+
+		pulseHighlight: function (id: string) {
+			pulseHighlight(id);
+		},
 
 		scrollToHighlight: function (highlight: Highlight, useFlash = true) {
 			if (!highlight.position?.boundingRect || !viewerRef) return;
@@ -802,7 +829,7 @@
 		textSelectionDelay: 1500,
 		selectedTool: 'text_selection',
 		selectedColorIndex: 0,
-		colors: ['#facc15', '#4ade80', '#60a5fa', '#f472b6', '#fb923c'],
+		colors: canonicalHighlightPalette(),
 		scrolledTo_color: 'rgba(251, 191, 36, 0.7)', // Bright amber flash
 		highlightMixBlendMode: 'normal',
 
@@ -862,8 +889,6 @@
 			}
 		}
 	) as TPdfHighlighterUtils;
-
-	//const colors: string[] = getContext('colors') || ['#fcf151', '#ff659f', '#83f18d', '#67dfff', '#b581fe'];
 
 	let derived_style = $derived.by(() => {
 		const cursor = pdfHighlighterUtils.selectedTool == 'hand' ? 'cursor: grab;' : '';
@@ -1029,7 +1054,7 @@
 	}
 
 	:global(.PdfHighlighter--dark .PdfHighlighter__highlight-layer) {
-		filter: invert(var(--pdf-invert)) hue-rotate(180deg) brightness(0.95);
+		filter: none;
 	}
 
 	/*:global(.textLayer ::selection) {

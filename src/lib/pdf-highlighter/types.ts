@@ -281,6 +281,7 @@ export type PdfHighlighterUtils = {
 	isSelectionInProgress(): boolean;
 
 	scrollToHighlight(highlight: Highlight, useFlash?: boolean): void;
+	pulseHighlight(id: string): void;
 	scrolledToHighlightIdRef?: string | null;
 
 	currentScale: number; //Represents scale as a number
