@@ -5,6 +5,7 @@
 	import DocumentOutline from './DocumentOutline.svelte';
 	import ThumbnailPanel from './ThumbnailPanel.svelte';
 	import { ChevronRight, FileText, List } from '@lucide/svelte';
+	import { cn } from '$lib/utils';
 
 	interface Props {
 		pdfDocument: PDFDocumentProxy;
@@ -16,6 +17,7 @@
 			  }
 			| unknown
 			| undefined;
+		getViewer?: () => any;
 		isOpen?: boolean;
 		onOpenChange?: (open: boolean) => void;
 		width?: number;
@@ -30,6 +32,7 @@
 		pdfDocument,
 		goToPage,
 		getEventBus,
+		getViewer,
 		isOpen: controlledOpen,
 		onOpenChange,
 		width = 260,
@@ -45,6 +48,7 @@
 	let outline = $state<ProcessedOutlineItem[] | null>(null);
 	let outlineLoading = $state(true);
 	let currentPage = $state(1);
+	let lastNavigatedId = $state<string | null>(null);
 	let tabInitialized = false;
 
 	const isOpen = $derived(controlledOpen ?? internalOpen);
@@ -76,18 +80,42 @@
 	});
 
 	$effect(() => {
-		const bus = getEventBus?.() as
-			| {
-					on: (ev: string, fn: (e: { pageNumber: number }) => void) => void;
-					off: (ev: string, fn: (e: { pageNumber: number }) => void) => void;
-			  }
-			| undefined;
+		const bus = getEventBus?.() as any;
+		const viewer = getViewer?.() as any;
 		if (!bus) return;
-		const handler = (e: { pageNumber: number }) => {
+
+		const handlePageChange = (e: { pageNumber: number }) => {
 			currentPage = e.pageNumber;
 		};
-		bus.on('pagechanging', handler);
-		return () => bus.off('pagechanging', handler);
+
+		const handleViewUpdate = (e: { location: { pageNumber: number } }) => {
+			if (e.location?.pageNumber) {
+				currentPage = e.location.pageNumber;
+			}
+		};
+
+		// Also listen to direct scroll events for high-frequency updates
+		const handleScroll = () => {
+			if (viewer?.pdfViewer?._location?.pageNumber) {
+				currentPage = viewer.pdfViewer._location.pageNumber;
+			}
+		};
+
+		bus.on('pagechanging', handlePageChange);
+		bus.on('updateviewarea', handleViewUpdate);
+		
+		const scrollContainer = viewer?.container;
+		if (scrollContainer) {
+			scrollContainer.addEventListener('scroll', handleScroll, { passive: true });	
+		}
+
+		return () => {
+			bus.off('pagechanging', handlePageChange);
+			bus.off('updateviewarea', handleViewUpdate);
+			if (scrollContainer) {
+				scrollContainer.removeEventListener('scroll', handleScroll);
+			}
+		};
 	});
 
 	function handlePageSelect(pageNumber: number) {
@@ -99,6 +127,7 @@
 	function handleOutlineNavigate(item: ProcessedOutlineItem) {
 		goToPage(item.pageNumber);
 		currentPage = item.pageNumber;
+		lastNavigatedId = item.id;
 	}
 
 	function setTab(tab: LeftPanelTab) {
@@ -121,15 +150,16 @@
 >
 	{#if isOpen}
 		<div class="flex h-full min-h-0 w-full flex-col" style:width="{width}px">
-			<div class="flex h-11 border-b border-[var(--lp-border)] bg-muted/30">
+			<div class="flex h-11 border-b border-border bg-muted/30">
 				{#if !outlineLoading && outline && outline.length > 0}
 					<button
 						type="button"
-						class="flex h-full flex-1 items-center justify-center gap-1.5 text-[13px] font-medium transition-colors"
-						class:border-b-2={activeTab === 'outline'}
-						class:border-[var(--lp-accent)]={activeTab === 'outline'}
-						class:text-[var(--lp-accent)]={activeTab === 'outline'}
-						class:text-[var(--lp-muted)]={activeTab !== 'outline'}
+						class={cn(
+							"flex h-full flex-1 items-center justify-center gap-1.5 text-[13px] font-medium transition-colors border-b-2",
+							activeTab === 'outline'
+								? "border-primary text-primary"
+								: "border-transparent text-muted-foreground hover:text-foreground"
+						)}
 						onclick={() => setTab('outline')}
 					>
 						<FileText class="size-4" />
@@ -138,11 +168,12 @@
 				{/if}
 				<button
 					type="button"
-					class="flex h-full flex-1 items-center justify-center gap-1.5 text-[13px] font-medium transition-colors"
-					class:border-b-2={activeTab === 'thumbnails'}
-					class:border-[var(--lp-accent)]={activeTab === 'thumbnails'}
-					class:text-[var(--lp-accent)]={activeTab === 'thumbnails'}
-					class:text-[var(--lp-muted)]={activeTab !== 'thumbnails'}
+					class={cn(
+						"flex h-full flex-1 items-center justify-center gap-1.5 text-[13px] font-medium transition-colors border-b-2",
+						activeTab === 'thumbnails'
+							? "border-primary text-primary"
+							: "border-transparent text-muted-foreground hover:text-foreground"
+					)}
 					onclick={() => setTab('thumbnails')}
 				>
 					<List class="size-4" />
@@ -156,6 +187,7 @@
 						{outline}
 						isLoading={outlineLoading}
 						{currentPage}
+						{lastNavigatedId}
 						onNavigate={handleOutlineNavigate}
 					/>
 				{:else}
@@ -164,9 +196,9 @@
 			</div>
 
 			<div
-				class="border-t border-[var(--lp-border)] px-3 py-2 text-center text-[11px] text-[var(--lp-muted)]"
+				class="border-t border-border bg-muted/20 px-3 py-2.5 text-center text-[10px] font-semibold tracking-wider text-muted-foreground uppercase tabular-nums"
 			>
-				Page {currentPage} / {pdfDocument.numPages}
+				Page {currentPage} of {pdfDocument.numPages}
 			</div>
 		</div>
 	{:else if showCollapsedRail}

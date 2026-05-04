@@ -679,6 +679,7 @@
 								goToPage={(n) => pdfHighlighterUtils.goToPage?.(n)}
 								getEventBus={() =>
 									pdfHighlighterUtils.getEventBus?.() as ViewerEventBus | undefined}
+								getViewer={() => pdfHighlighterUtils.getViewer?.()}
 								isOpen={leftOpen}
 								onOpenChange={(v) => (leftOpen = v)}
 								defaultTab={docMeta?.outline && docMeta.outline.length > 0

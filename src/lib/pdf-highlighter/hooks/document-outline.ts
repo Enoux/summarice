@@ -4,7 +4,8 @@ import type { PdfOutlineItemRaw, ProcessedOutlineItem } from '../types';
 async function processOutlineItems(
 	pdfDocument: PDFDocumentProxy,
 	items: PdfOutlineItemRaw[],
-	level: number
+	level: number,
+	parentId: string = 'outline'
 ): Promise<ProcessedOutlineItem[]> {
 	const processed: ProcessedOutlineItem[] = [];
 
@@ -28,12 +29,13 @@ async function processOutlineItems(
 			}
 		}
 
+		const id = `${parentId}-${i}`;
 		const children = item.items?.length
-			? await processOutlineItems(pdfDocument, item.items, level + 1)
+			? await processOutlineItems(pdfDocument, item.items, level + 1, id)
 			: [];
 
 		processed.push({
-			id: `outline-${level}-${i}`,
+			id,
 			title: item.title,
 			pageNumber,
 			dest: item.dest,
