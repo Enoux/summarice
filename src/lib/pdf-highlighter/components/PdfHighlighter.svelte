@@ -119,6 +119,7 @@
 		normalizeZoomScale,
 		normalizeZoomValue
 	} from '$lib/pdf-highlighter/lib/zoom';
+	import { TIP_CONTAINER_SELECTOR } from '$lib/pdf-highlighter/lib/tip-hover-contract';
 
 	type PointerEventHandler = (
 		event: PointerEvent & { currentTarget: EventTarget & HTMLElement }
@@ -565,7 +566,7 @@
 	const handleMouseDown: PointerEventHandler = (event) => {
 		event.stopPropagation();
 		if (!(event.target instanceof Element)) return;
-		if (event.target.closest('.hl_tip_container')) return;
+		if (event.target.closest(TIP_CONTAINER_SELECTOR)) return;
 		clearTextSelection();
 		if (
 			pdfHighlighterUtils.selectedTool === 'hand' ||
@@ -785,7 +786,7 @@
 		//getTip: () => tip,
 
 		currentScale: 1,
-		currentScaleValue: 1,
+		currentScaleValue: 'auto',
 		setCurrentScaleValue: function (value: PdfScaleValue) {
 			handleScaleValue(normalizeZoomValue(value));
 			(this.setTip as TipStateUpdater)(null);
@@ -916,7 +917,7 @@
 	onpointerup={handleMouseUp}
 	style={container_inline_style}
 	onselectstart={(event) => {
-		if (event.target instanceof Element && event.target.closest('.hl_tip_container')) return;
+		if (event.target instanceof Element && event.target.closest(TIP_CONTAINER_SELECTOR)) return;
 		//const container = containerNodeRef;
 		//const selection = getWindow(container).getSelection();
 		//selection.collapse(selection.focusNode, selection.focusOffset)

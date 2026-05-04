@@ -137,4 +137,36 @@
 		@apply font-sans;
 		scrollbar-gutter: stable;
 	}
+
+	.minimal-scrollbar {
+		scrollbar-width: thin;
+		scrollbar-color: transparent transparent;
+		transition: scrollbar-color 0.3s ease;
+	}
+
+	.minimal-scrollbar:hover {
+		scrollbar-color: var(--border) transparent;
+	}
+
+	/* Webkit specific styles for better control */
+	.minimal-scrollbar::-webkit-scrollbar {
+		width: 5px;
+		height: 5px;
+	}
+
+	.minimal-scrollbar::-webkit-scrollbar-track {
+		background: transparent;
+	}
+
+	.minimal-scrollbar::-webkit-scrollbar-thumb {
+		background: transparent;
+		border-radius: 10px;
+		border: 1px solid transparent;
+		background-clip: content-box;
+	}
+
+	.minimal-scrollbar:hover::-webkit-scrollbar-thumb {
+		background: var(--border);
+		background-clip: content-box;
+	}
 }

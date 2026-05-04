@@ -59,7 +59,7 @@
 
 <div
 	bind:this={rootEl}
-	class="min-h-0 flex-1 space-y-2 overflow-y-auto px-2 py-2"
+	class="minimal-scrollbar min-h-0 flex-1 space-y-2 overflow-y-auto px-2 py-2"
 	onscroll={onScroll}
 >
 	{#if totalPages === 0}
