@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { IngestionProgress } from '$lib/ingestion';
+	import type { IngestionProgress } from '$lib/features/ingestion';
 	import { cn } from '$lib/utils';
 	import { Loader2, CheckCircle2, AlertCircle, X } from '@lucide/svelte';
 	import { fade, slide } from 'svelte/transition';

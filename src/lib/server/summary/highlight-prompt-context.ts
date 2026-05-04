@@ -1,4 +1,4 @@
-import { DEFAULT_CATEGORY_LABELS, parseCategoryLabels } from '$lib/domain/highlight-categories';
+import { DEFAULT_CATEGORY_LABELS, parseCategoryLabels } from '$lib/features/highlights/domain/highlight-categories';
 
 export type HighlightPromptContext =
 	| {

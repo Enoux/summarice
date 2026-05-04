@@ -7,7 +7,7 @@
 		DEFAULT_SLOT_HEX,
 		type CategorySlotId,
 		CATEGORY_SLOT_IDS
-	} from '$lib/domain/highlight-categories';
+	} from '$lib/features/highlights/domain/highlight-categories';
 	import AnnotationList from './AnnotationList.svelte';
 	import { cn } from '$lib/utils';
 
@@ -21,6 +21,7 @@
 		onAddAnnotation: (h: CommentedHighlight, body: string) => Promise<void>;
 		onUpdateAnnotation: (h: CommentedHighlight, id: string, body: string) => Promise<void>;
 		onDeleteAnnotation: (h: CommentedHighlight, id: string) => Promise<void>;
+
 		selected?: boolean;
 		onHover?: (id: string | null) => void;
 	}
@@ -35,6 +36,7 @@
 		onAddAnnotation,
 		onUpdateAnnotation,
 		onDeleteAnnotation,
+
 		selected = false,
 		onHover
 	}: Props = $props();
@@ -52,11 +54,14 @@
 	const commentText = $derived(highlight.comment?.trim() ?? '');
 	const isLongComment = $derived(commentText.length > 120);
 	const ord = $derived(highlight.ordinal ?? '—');
-	const annotationCount = $derived(highlight.annotations?.length ?? 0);
+	const annotations = $derived(highlight.annotations ?? []);
+	const annotationCount = $derived(annotations.length);
+	const hasAiAnnotation = $derived(annotations.some((a) => a.source === 'ai'));
 
 	let isTextExpanded = $state(false);
 	let isCommentExpanded = $state(false);
 	let decoColor = $state(highlight.display_color ?? '#facc15');
+
 
 	$effect(() => {
 		void highlight.id;
@@ -103,6 +108,8 @@
 		e.preventDefault();
 		handleSelect();
 	}
+
+
 </script>
 
 <div
@@ -271,7 +278,7 @@
 						<p
 							class={cn(
 								'whitespace-pre-wrap text-sm font-normal leading-relaxed text-foreground/90',
-								'break-words [overflow-wrap:anywhere]',
+								'wrap-break-word',
 								!isCommentExpanded && 'line-clamp-3'
 							)}
 						>
@@ -311,7 +318,7 @@
 		<div class="-mt-1" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
 			<AnnotationList
 				highlightId={highlight.id!}
-				annotations={highlight.annotations ?? []}
+				annotations={annotations}
 				showAnnotations={selected}
 				onCreate={(body) => onAddAnnotation(highlight, body)}
 				onUpdate={(id, body) => onUpdateAnnotation(highlight, id, body)}

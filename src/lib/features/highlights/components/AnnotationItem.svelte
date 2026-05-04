@@ -12,6 +12,8 @@
 
 	let { annotation, onUpdate, onDelete }: Props = $props();
 
+	const isGenerating = $derived(annotation.source === 'ai' && annotation.body === 'Generating figure interpretation...');
+	const isAiAnnotation = $derived(annotation.source === 'ai');
 	let isEditing = $state(false);
 	let editBody = $state(annotation.body);
 	let isSaving = $state(false);
@@ -48,18 +50,22 @@
 <div
 	class={cn(
 		'group relative rounded-md p-2 text-sm transition-colors select-none',
-		annotation.source === 'ai' ? 'bg-primary/5 border border-primary/10' : 'bg-muted/30'
+		isAiAnnotation ? 'bg-primary/5 border border-primary/10' : 'bg-muted/30'
 	)}
 	onclick={(e) => e.stopPropagation()}
 >
 	<div class="mb-1 flex items-center justify-between">
 		<div class="flex items-center gap-1.5">
-			{#if annotation.source === 'ai'}
-				<div class="flex items-center gap-1 rounded bg-primary/10 px-1 py-0.5 text-[10px] font-bold uppercase tracking-wider text-primary">
-					<Sparkles class="size-2.5" />
-					AI
+			{#if isAiAnnotation}
+				<div class={cn(
+					"flex items-center gap-1 rounded bg-primary/10 px-1 py-0.5 text-[10px] font-bold uppercase tracking-wider text-primary",
+					isGenerating && "animate-pulse ring-1 ring-primary/20"
+				)}>
+					<Sparkles class={cn("size-2.5", isGenerating && "animate-spin-slow")} />
+					{isGenerating ? 'Thinking...' : 'AI'}
 				</div>
 			{/if}
+
 			<span class="text-[10px] text-muted-foreground">
 				{new Date(annotation.created_at).toLocaleDateString()}
 			</span>
@@ -106,8 +112,13 @@
 		<!-- svelte-ignore a11y_click_events_have_key_events -->
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
-			class="cursor-text whitespace-pre-wrap break-words"
+			class={cn(
+				"whitespace-pre-wrap break-words transition-all duration-300",
+				!isAiAnnotation && "cursor-text",
+				isGenerating && "shimmer-text italic text-muted-foreground/70"
+			)}
 			onclick={(e) => {
+				if (isGenerating || isAiAnnotation) return;
 				e.stopPropagation();
 				isEditing = true;
 			}}
@@ -116,3 +127,32 @@
 		</div>
 	{/if}
 </div>
+
+<style>
+	@keyframes spin-slow {
+		from { transform: rotate(0deg); }
+		to { transform: rotate(360deg); }
+	}
+	:global(.animate-spin-slow) {
+		animation: spin-slow 3s linear infinite;
+	}
+
+	@keyframes shimmer {
+		0% { background-position: -200% 0; }
+		100% { background-position: 200% 0; }
+	}
+
+	:global(.shimmer-text) {
+		background: linear-gradient(
+			90deg,
+			rgba(var(--primary-rgb, 59, 130, 246), 0.1) 25%,
+			rgba(var(--primary-rgb, 59, 130, 246), 0.4) 50%,
+			rgba(var(--primary-rgb, 59, 130, 246), 0.1) 75%
+		);
+		background-size: 200% 100%;
+		animation: shimmer 2s infinite linear;
+		-webkit-background-clip: text;
+		-webkit-text-fill-color: transparent;
+		background-clip: text;
+	}
+</style>

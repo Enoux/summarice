@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { CommentedHighlight } from '$lib/pdf-highlighter/types';
 	import { HighlightsModel } from '$lib/pdf-highlighter';
-	import HighlightListItem from './HighlightListItem.svelte';
+	import HighlightListItem from '$lib/features/highlights/components/HighlightListItem.svelte';
 	import { Search, RotateCcw, MessageSquare, LayoutList } from '@lucide/svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
@@ -9,8 +9,8 @@
 	import { Separator } from '$lib/components/ui/separator/index.js';
 	import { onMount } from 'svelte';
 	import { PUBLIC_MOCK_COMPONENTS } from '$env/static/public';
-	import MockSummary from './MockSummary.svelte';
-	import Summary from './Summary.svelte';
+	import MockSummary from '$lib/features/summary/components/MockSummary.svelte';
+	import Summary from '$lib/features/summary/components/Summary.svelte';
 
 	interface Props {
 		highlightsStore: HighlightsModel<CommentedHighlight>;
@@ -29,6 +29,7 @@
 		onAddAnnotation: (h: CommentedHighlight, body: string) => Promise<void>;
 		onUpdateAnnotation: (h: CommentedHighlight, id: string, body: string) => Promise<void>;
 		onDeleteAnnotation: (h: CommentedHighlight, id: string) => Promise<void>;
+
 		selectedHighlightId?: string | null;
 	}
 
@@ -45,6 +46,7 @@
 		onAddAnnotation,
 		onUpdateAnnotation,
 		onDeleteAnnotation,
+
 		selectedHighlightId = $bindable(null)
 	}: Props = $props();
 
@@ -171,6 +173,7 @@
 							{onAddAnnotation}
 							{onUpdateAnnotation}
 							{onDeleteAnnotation}
+
 							selected={selectedHighlightId === (h.id ?? null)}
 							onHover={(id) => highlightsStore.setHoveredHighlightId(id)}
 						/>

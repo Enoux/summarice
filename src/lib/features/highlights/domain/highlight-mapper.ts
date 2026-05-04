@@ -18,10 +18,12 @@ export type HighlightRow = {
 	annotations?: Annotation[];
 };
 
-export function rowToCommentedHighlight(row: HighlightRow): CommentedHighlight {
+export function rowToCommentedHighlight(
+	row: HighlightRow,
+	opts: { screenshotUrl?: string | null } = {}
+): CommentedHighlight {
 	const category = row.category as CategorySlotId | null;
-	const colorIndex =
-		category != null && category >= 1 && category <= 5 ? category - 1 : 0;
+	const colorIndex = category != null && category >= 1 && category <= 5 ? category - 1 : 0;
 
 	return {
 		id: row.id,
@@ -31,7 +33,9 @@ export function rowToCommentedHighlight(row: HighlightRow): CommentedHighlight {
 			row.kind === 'text'
 				? { text: row.text ?? '' }
 				: row.kind === 'area'
-					? {}
+					? opts.screenshotUrl
+						? { image: opts.screenshotUrl }
+						: {}
 					: {},
 		comment: row.comment ?? undefined,
 		color_index: colorIndex,
@@ -50,6 +54,7 @@ export function commentedHighlightToCreatePayload(
 		decorative: boolean;
 		/** Explicit hex for DB `color` column */
 		colorHex: string;
+		screenshotPath?: string | null;
 	}
 ) {
 	const kind = h.type ?? 'text';
@@ -71,7 +76,7 @@ export function commentedHighlightToCreatePayload(
 		p_category: category,
 		p_color: opts.colorHex,
 		p_comment: h.comment ?? null,
-		p_screenshot_path: null as string | null,
+		p_screenshot_path: opts.screenshotPath ?? null,
 		p_id: h.id ?? null
 	};
 }

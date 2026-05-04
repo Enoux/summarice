@@ -3,7 +3,7 @@
 	import DropZone from '$lib/components/dashboard/DropZone.svelte';
 	import DocumentList from '$lib/components/dashboard/DocumentList.svelte';
 	import UploadProgress from '$lib/components/dashboard/UploadProgress.svelte';
-	import { ingest, type IngestionProgress } from '$lib/ingestion';
+	import { ingest, type IngestionProgress } from '$lib/features/ingestion';
 	import { invalidate } from '$app/navigation';
 	import { Input } from '$lib/components/ui/input';
 

@@ -3,10 +3,11 @@ import type { PageServerLoad } from './$types';
 import {
 	ensureUserSettingsRow,
 	fetchHighlightsForDocument,
-	fetchUserSettings
+	fetchUserSettings,
+	rowToCommentedHighlightWithScreenshot
 } from '$lib/server/highlights/highlight-service';
-import { rowToCommentedHighlight } from '$lib/domain/highlight-mapper';
-import { parseCategoryLabels } from '$lib/domain/highlight-categories';
+import type { rowToCommentedHighlight } from '$lib/features/highlights/domain/highlight-mapper';
+import { parseCategoryLabels } from '$lib/features/highlights/domain/highlight-categories';
 
 export const load: PageServerLoad = async ({ params, locals: { supabase, user } }) => {
 	try {
@@ -81,7 +82,9 @@ export const load: PageServerLoad = async ({ params, locals: { supabase, user } 
 		let highlightsPayload: ReturnType<typeof rowToCommentedHighlight>[] = [];
 		try {
 			const rows = await fetchHighlightsForDocument(supabase, id);
-			highlightsPayload = rows.map(rowToCommentedHighlight);
+			highlightsPayload = await Promise.all(
+				rows.map((row) => rowToCommentedHighlightWithScreenshot(supabase, row))
+			);
 		} catch {
 			// Table may not exist until migration is applied; viewer still loads.
 			highlightsPayload = [];
