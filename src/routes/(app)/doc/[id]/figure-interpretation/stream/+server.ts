@@ -1,5 +1,6 @@
 import { error } from '@sveltejs/kit';
 import { getLLMProvider } from '$lib/server/ai';
+import type { LLMUsage } from '$lib/server/ai/types';
 import { env } from '$lib/server/env';
 import {
 	buildFigureInterpretationPrompt,
@@ -55,7 +56,7 @@ export const GET: RequestHandler = async ({ locals: { supabase, user }, params, 
 			try {
 				send('ready', { annotationId: prompt.annotationId, highlightId: prompt.highlightId });
 
-				let usage: unknown;
+				let usage: LLMUsage | undefined;
 				for await (const chunk of llm) {
 					if (chunk.type === 'text') {
 						markdown += chunk.text;
@@ -80,7 +81,9 @@ export const GET: RequestHandler = async ({ locals: { supabase, user }, params, 
 					provider: telemetry?.provider ?? 'openrouter',
 					model: telemetry?.model ?? env.OPENROUTER_FIGURE_MODEL ?? 'default',
 					usage: telemetry?.usage ?? usage,
-					providerMetadata: telemetry,
+					latencyMs: telemetry?.latencyMs,
+					costUsd: telemetry?.costUsd,
+					providerMetadata: telemetry?.providerMetadata,
 					status: 'completed'
 				});
 

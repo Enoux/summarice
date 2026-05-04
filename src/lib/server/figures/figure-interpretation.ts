@@ -5,6 +5,7 @@ import {
 	deleteAnnotation,
 	updateAnnotation
 } from '$lib/server/highlights/highlight-service';
+import type { LLMUsage } from '$lib/server/ai/types';
 
 export type FigureInterpretationDraft = {
 	annotationId: string;
@@ -144,12 +145,16 @@ export async function recordFigureInterpretationTelemetry(
 		annotationId: string;
 		provider: string;
 		model: string;
-		usage?: unknown;
+		usage?: LLMUsage;
+		latencyMs?: number;
+		costUsd?: number;
 		providerMetadata?: unknown;
 		status: 'completed' | 'failed';
 		errorMessage?: string;
 	}
 ) {
+	const usage = normalizeUsage(opts.usage);
+
 	const { error } = await supabase.from('llm_calls').insert({
 		owner_id: opts.ownerId,
 		document_id: opts.documentId,
@@ -159,7 +164,12 @@ export async function recordFigureInterpretationTelemetry(
 		model: opts.model,
 		use_case: 'figure_interpretation',
 		status: opts.status,
-		usage: opts.usage ?? null,
+		prompt_tokens: usage.promptTokens ?? null,
+		completion_tokens: usage.completionTokens ?? null,
+		total_tokens: usage.totalTokens ?? null,
+		latency_ms: opts.latencyMs ?? null,
+		cost_usd: opts.costUsd ?? null,
+		usage: Object.keys(usage).length > 0 ? usage : null,
 		provider_metadata: opts.providerMetadata ?? null,
 		error_message: opts.errorMessage ?? null
 	});
@@ -212,4 +222,23 @@ function mediaTypeFromPath(path: string): string {
 	if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
 	if (lower.endsWith('.webp')) return 'image/webp';
 	return 'image/png';
+}
+
+function normalizeUsage(usage: LLMUsage | undefined): LLMUsage {
+	if (!usage) return {};
+
+	return {
+		promptTokens:
+			typeof usage.promptTokens === 'number' && Number.isFinite(usage.promptTokens)
+				? usage.promptTokens
+				: undefined,
+		completionTokens:
+			typeof usage.completionTokens === 'number' && Number.isFinite(usage.completionTokens)
+				? usage.completionTokens
+				: undefined,
+		totalTokens:
+			typeof usage.totalTokens === 'number' && Number.isFinite(usage.totalTokens)
+				? usage.totalTokens
+				: undefined
+	};
 }
