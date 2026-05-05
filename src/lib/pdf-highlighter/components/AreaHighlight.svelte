@@ -61,6 +61,7 @@
 	import { debounce } from '$lib/pdf-highlighter/utils';
 	import RND from '$lib/pdf-highlighter/components/RND.svelte';
 	import type { LTWH } from '$lib/pdf-highlighter/types';
+	import { resolveHighlightColor } from '$lib/features/highlights/domain/highlight-categories';
 
 	/**
 	 * The props type for {@link AreaHighlight}.
@@ -85,8 +86,11 @@
 		isDraggable = false
 	}: AreaHighlightProps = $props();
 
+	const currentThemeMode = $derived(pdfHighlighterUtils.viewerTheme?.mode ?? 'light');
 	const color = $derived.by(() => {
-		if (highlight.display_color) return highlight.display_color;
+		if (highlight.display_color) {
+			return resolveHighlightColor(highlight.display_color, currentThemeMode);
+		}
 		if (highlight.color_index !== undefined && highlight.color_index !== null) {
 			return pdfHighlighterUtils.colors?.[highlight.color_index] ?? 'lightgrey';
 		}

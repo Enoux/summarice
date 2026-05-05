@@ -21,8 +21,8 @@
 	import type { Component } from 'svelte';
 	import {
 		CATEGORY_SLOT_IDS,
-		DEFAULT_SLOT_HEX,
-		paletteFromSettings
+		canonicalHighlightPalette,
+		resolveHighlightPalette
 	} from '$lib/features/highlights/domain/highlight-categories';
 	import { hexForNewHighlight } from '$lib/features/highlights/domain/highlight-mapper';
 	import {
@@ -40,10 +40,12 @@
 	const pdfUrl = $derived(data?.pdfUrl);
 	const docId = $derived(data?.document?.id ?? '');
 	const decorative = $derived(data?.userSettings?.useColorsDecoratively ?? false);
+	const viewerColorMode = $derived(mode.current === 'dark' ? ('dark' as const) : ('light' as const));
 	const categoryLabelList = $derived(
 		CATEGORY_SLOT_IDS.map((id) => data?.userSettings?.categoryLabels?.[String(id)] ?? '')
 	);
-	const slotHexList = $derived(CATEGORY_SLOT_IDS.map((id) => DEFAULT_SLOT_HEX[id]));
+	const canonicalSlotHexList = $derived(canonicalHighlightPalette());
+	const displaySlotHexList = $derived(resolveHighlightPalette(viewerColorMode));
 
 	let pdfHighlighterUtils = $state<Partial<PdfHighlighterUtils>>({});
 	let highlightsStore = new HighlightsModel<CommentedHighlight>(data?.highlights ?? []);
@@ -55,8 +57,7 @@
 	$effect(() => {
 		const u = pdfHighlighterUtils;
 		if (!u || typeof u !== 'object') return;
-		const { hex } = paletteFromSettings(data?.userSettings?.categoryLabels ?? {}, decorative);
-		u.colors = [...hex];
+		u.colors = [...displaySlotHexList];
 	});
 
 	let sidebarOpen = $state(true);
@@ -124,7 +125,7 @@
 	});
 
 	const pdfTheme = $derived({
-		mode: mode.current === 'dark' ? ('dark' as const) : ('light' as const)
+		mode: viewerColorMode
 	});
 
 	function scrollSidebarToHighlight(id: string) {
@@ -207,7 +208,7 @@
 		const hex = hexForNewHighlight(h, {
 			decorative,
 			decorativeDefaultHex: data?.userSettings?.decorativeDefaultColor ?? '#facc15',
-			slotHexByIndex: [...slotHexList]
+			slotHexByIndex: [...canonicalSlotHexList]
 		});
 
 		const nextOrdinal =
@@ -733,6 +734,7 @@
 								bind:width={sidebarWidth}
 								categoryLabels={categoryLabelList}
 								decorativeMode={decorative}
+								{viewerColorMode}
 								onPersistDelete={persistDelete}
 								onRecategorize={persistRecategorize}
 								onResetAll={resetAllRemote}
@@ -741,6 +743,7 @@
 								onDeleteAnnotation={deleteAnnotation}
 
 								bind:selectedHighlightId
+								viewerUtils={pdfHighlighterUtils}
 							/>
 						</div>
 					{/snippet}
