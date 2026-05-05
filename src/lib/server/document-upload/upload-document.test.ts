@@ -11,7 +11,7 @@ vi.mock('./pdf-outline', () => ({
 	extractPdfOutline
 }));
 
-describe('ingestDocumentFile', () => {
+describe('uploadDocumentFile', () => {
 	beforeEach(() => {
 		parsePdfWithLiteParse.mockReset();
 		extractPdfOutline.mockReset();
@@ -48,8 +48,8 @@ describe('ingestDocumentFile', () => {
 			type: 'application/pdf'
 		});
 
-		const { ingestDocumentFile } = await import('./ingest-document');
-		await ingestDocumentFile(supabase as never, 'user-1', file);
+		const { uploadDocumentFile } = await import('./upload-document');
+		await uploadDocumentFile(supabase as never, 'user-1', file);
 
 		const parseBytes = parsePdfWithLiteParse.mock.calls[0]?.[0] as Uint8Array;
 		const outlineBytes = extractPdfOutline.mock.calls[0]?.[0] as Uint8Array;

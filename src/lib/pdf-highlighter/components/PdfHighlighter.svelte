@@ -115,7 +115,7 @@
 	} from 'pdfjs-dist/web/pdf_viewer.mjs';
 	import { debounce } from '$lib/pdf-highlighter/utils';
 	import { resolvePdfHighlighterTheme } from '$lib/pdf-highlighter/lib/theme';
-	import { canonicalHighlightPalette } from '$lib/features/highlights/domain/highlight-categories';
+	import { canonicalHighlightPalette } from '$lib/highlights/color-slots';
 	import trimClientRectsToText from '$lib/pdf-highlighter/pdf_utils/trim-client-rects-to-text';
 	import { getHighlightScrollTargetState } from '$lib/pdf-highlighter/lib/scroll-target';
 	import {

@@ -4,13 +4,10 @@ Shared code consumed by routes. Anything imported as `$lib/...` lives here.
 
 ## What lives here
 
-- `components/` — UI: shadcn primitives (`ui/`) and feature components (`viewer/`, `dashboard/`, `shared/`).
+- `components/` — Common UI: shadcn primitives (`ui/`) and shared components.
+- `features/` — Feature-specific components and logic (highlights, document-upload, summary, viewer).
 - `pdf-highlighter/` — Vendored fork of the PDF highlighter library.
-- `ingestion/` — PDF upload pipeline: text extraction, outline, density scan (client-side orchestration).
-- `citations/` — Markdown `[^n]` citation parsing and rendering helpers.
-- `domain/` — Shared types, DTOs, zod schemas. The contract between routes, components, and `server/`.
-- `server/` — **Server-only** code. Never bundled to the browser. AI, Supabase, retrieval, summary, figures.
-- `hooks/` — Svelte/runtime hooks (e.g. `handle` for SvelteKit).
+- `server/` — **Server-only** code. Never bundled to the browser. AI, Supabase, document-upload, summary, figures, etc.
 - `index.ts`, `utils.ts`, `pdf-worker-url.ts` — small top-level helpers.
 
 ## Boundary

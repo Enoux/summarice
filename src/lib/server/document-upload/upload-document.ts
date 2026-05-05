@@ -13,7 +13,7 @@ function cloneBytes(bytes: Uint8Array) {
 	return new Uint8Array(bytes);
 }
 
-export async function ingestDocumentFile(
+export async function uploadDocumentFile(
 	supabase: SupabaseClient,
 	userId: string,
 	file: File
@@ -27,7 +27,7 @@ export async function ingestDocumentFile(
 
 	if (avgTextDensity < TEXT_DENSITY_THRESHOLD) {
 		throw new Error(
-			'Scanned PDF detected. This document does not have a text layer and cannot be ingested.'
+			'Scanned PDF detected. This document does not have a text layer and cannot be uploaded.'
 		);
 	}
 
@@ -42,7 +42,7 @@ export async function ingestDocumentFile(
 
 	if (uploadError) throw uploadError;
 
-	const { data: documentId, error: rpcError } = await supabase.rpc('ingest_document', {
+	const { data: documentId, error: rpcError } = await supabase.rpc('upload_document', {
 		p_title: file.name,
 		p_page_count: pageCount,
 		p_has_text_layer: true,

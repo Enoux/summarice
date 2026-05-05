@@ -61,7 +61,7 @@
 	import { debounce } from '$lib/pdf-highlighter/utils';
 	import RND from '$lib/pdf-highlighter/components/RND.svelte';
 	import type { LTWH } from '$lib/pdf-highlighter/types';
-	import { resolveHighlightColor } from '$lib/features/highlights/domain/highlight-categories';
+	import { resolveHighlightColor } from '$lib/highlights/color-slots';
 
 	/**
 	 * The props type for {@link AreaHighlight}.

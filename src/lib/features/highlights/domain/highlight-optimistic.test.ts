@@ -5,7 +5,7 @@ import {
 	applyPersistedHighlight,
 	buildOptimisticHighlight,
 	type PersistedHighlightResponse
-} from './highlight-client';
+} from './highlight-optimistic';
 
 describe('highlight client helpers', () => {
 	it('creates optimistic highlights immediately with provisional text state', () => {

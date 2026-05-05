@@ -4,7 +4,7 @@
 	import * as Popover from '$lib/components/ui/popover/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { ExternalLink } from '@lucide/svelte';
-	import { resolveHighlightColor } from '$lib/features/highlights/domain/highlight-categories';
+	import { resolveHighlightColor } from '$lib/highlights/color-slots';
 	import { cn } from '$lib/utils';
 	import { tick } from 'svelte';
 

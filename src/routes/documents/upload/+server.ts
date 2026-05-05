@@ -1,6 +1,6 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { ingestDocumentFile } from '$lib/server/ingestion/ingest-document';
+import { uploadDocumentFile } from '$lib/server/document-upload/upload-document';
 
 export const POST: RequestHandler = async ({ locals, request }) => {
 	if (!locals.user) error(401, 'Unauthorized');
@@ -17,10 +17,10 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 	}
 
 	try {
-		const result = await ingestDocumentFile(locals.supabase, locals.user.id, entry);
+		const result = await uploadDocumentFile(locals.supabase, locals.user.id, entry);
 		return json(result);
 	} catch (e) {
-		console.error('[documents/ingest POST]', e);
-		error(500, e instanceof Error ? e.message : 'Failed to ingest document');
+		console.error('[documents/upload POST]', e);
+		error(500, e instanceof Error ? e.message : 'Failed to upload document');
 	}
 };

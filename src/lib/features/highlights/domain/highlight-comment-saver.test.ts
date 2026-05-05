@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { HighlightsModel } from '$lib/pdf-highlighter';
 import type { CommentedHighlight } from '$lib/pdf-highlighter/types';
-import { createHighlightCommentSaver } from './highlight-comment-client';
+import { createHighlightCommentSaver } from './highlight-comment-saver';
 
 const baseHighlight: CommentedHighlight = {
 	id: '11111111-1111-4111-8111-111111111111',

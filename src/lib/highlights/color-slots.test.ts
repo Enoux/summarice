@@ -5,7 +5,7 @@ import {
 	canonicalHighlightPalette,
 	resolveHighlightColor,
 	resolveHighlightPalette
-} from './highlight-categories';
+} from './color-slots';
 
 describe('highlight categories color authority', () => {
 	it('keeps the light palette exactly unchanged', () => {

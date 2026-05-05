@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { liteParseResultToPages } from './liteparse-pages';
 
 describe('liteParseResultToPages', () => {
-	it('converts LiteParse output into ingest pages with normalized per-page text', () => {
+	it('converts LiteParse output into upload pages with normalized per-page text', () => {
 		const pages = liteParseResultToPages({
 			pages: [
 				{

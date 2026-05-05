@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { applyHighlightSelection } from './highlight-selection';
+import { applyHighlightSelection } from './highlight-selection-state';
 
 describe('applyHighlightSelection', () => {
 	it('selects the requested highlight and opens the sidebar', () => {

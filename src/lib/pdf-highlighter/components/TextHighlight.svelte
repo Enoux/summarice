@@ -43,7 +43,7 @@
 <script lang="ts">
 	//TODO: DRY?
 	import { debounce } from '$lib/pdf-highlighter/utils';
-	import { resolveHighlightColor } from '$lib/features/highlights/domain/highlight-categories';
+	import { resolveHighlightColor } from '$lib/highlights/color-slots';
 
 	/**
 	 * A component for displaying a highlighted text area.

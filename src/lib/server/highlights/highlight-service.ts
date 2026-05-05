@@ -1,12 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import {
-	commentedHighlightToCreatePayload,
-	type HighlightRow,
-	rowToCommentedHighlight
-} from '$lib/features/highlights/domain/highlight-mapper';
-import type { CommentedHighlight, Highlight } from '$lib/pdf-highlighter/types';
-import type { ScaledPosition } from '$lib/pdf-highlighter/types';
+import type { Annotation, CommentedHighlight, Highlight, ScaledPosition } from '$lib/pdf-highlighter/types';
+import { type CategorySlotId } from '$lib/highlights/color-slots';
 import {
 	refineHighlightText,
 	type HighlightTextStatus
@@ -16,7 +11,7 @@ import {
 	removeHighlightScreenshot,
 	uploadHighlightScreenshot
 } from '$lib/server/highlights/screenshot-storage';
-import type { StoredPageLayout } from '$lib/server/ingestion/liteparse-pages';
+import type { StoredPageLayout } from '$lib/server/document-upload/liteparse-pages';
 
 type SupabaseErrorLike = {
 	code?: string;
@@ -59,6 +54,88 @@ export async function fetchUserSettings(supabase: SupabaseClient, userId: string
 		throw error;
 	}
 	return data;
+}
+
+// ─── Mapper & Types ───────────────────────────────────────────────────────────
+
+export type HighlightRow = {
+	id: string;
+	document_id: string;
+	owner_id: string;
+	ordinal: number;
+	kind: 'text' | 'area';
+	page_number: number;
+	text: string | null;
+	comment: string | null;
+	screenshot_path: string | null;
+	bounding_box: ScaledPosition;
+	category: number | null;
+	color: string;
+	created_at: string;
+	annotations?: Annotation[];
+};
+
+export function rowToCommentedHighlight(
+	row: HighlightRow,
+	opts: { screenshotUrl?: string | null } = {}
+): CommentedHighlight {
+	const category = row.category as CategorySlotId | null;
+	const colorIndex = category != null && category >= 1 && category <= 5 ? category - 1 : 0;
+
+	return {
+		id: row.id,
+		type: row.kind,
+		position: row.bounding_box,
+		content:
+			row.kind === 'text'
+				? { text: row.text ?? '' }
+				: row.kind === 'area'
+					? opts.screenshotUrl
+						? { image: opts.screenshotUrl }
+						: {}
+					: {},
+		comment: row.comment ?? undefined,
+		color_index: colorIndex,
+		category_slot: category === null ? null : category,
+		ordinal: row.ordinal,
+		display_color: row.color,
+		annotations: row.annotations
+	};
+}
+
+export function commentedHighlightToCreatePayload(
+	h: CommentedHighlight,
+	opts: {
+		documentId: string;
+		/** When false, category comes from color_index + 1 */
+		decorative: boolean;
+		/** Explicit hex for DB `color` column */
+		colorHex: string;
+		screenshotPath?: string | null;
+	}
+) {
+	const kind = h.type ?? 'text';
+	const pageNumber = h.position?.boundingRect.pageNumber ?? 1;
+	const text = kind === 'text' ? (h.content?.text ?? '') : null;
+	const bounding = h.position as ScaledPosition;
+	if (!bounding?.boundingRect) {
+		throw new Error('Missing bounding box');
+	}
+	const slot = Math.min(Math.max((h.color_index ?? 0) + 1, 1), 5);
+	const category: number | null = opts.decorative ? null : slot;
+
+	return {
+		p_document_id: opts.documentId,
+		p_kind: kind,
+		p_page_number: pageNumber,
+		p_text: text,
+		p_bounding_box: bounding,
+		p_category: category,
+		p_color: opts.colorHex,
+		p_comment: h.comment ?? null,
+		p_screenshot_path: opts.screenshotPath ?? null,
+		p_id: h.id ?? null
+	};
 }
 
 // ─── Highlights ───────────────────────────────────────────────────────────────

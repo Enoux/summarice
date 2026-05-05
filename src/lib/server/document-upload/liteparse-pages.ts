@@ -31,7 +31,7 @@ export type StoredPageLayout = {
 	}>;
 };
 
-export type IngestPage = {
+export type UploadPage = {
 	page_number: number;
 	text: string;
 	layout: StoredPageLayout;
@@ -41,7 +41,7 @@ export function normalizePageText(text: string): string {
 	return text.replace(/\s+/g, ' ').trim();
 }
 
-export function liteParseResultToPages(result: { pages: LiteParsePageLike[] }): IngestPage[] {
+export function liteParseResultToPages(result: { pages: LiteParsePageLike[] }): UploadPage[] {
 	return result.pages.map((page) => ({
 		page_number: page.pageNum,
 		text: normalizePageText(page.text),

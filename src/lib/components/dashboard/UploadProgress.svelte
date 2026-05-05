@@ -1,11 +1,11 @@
 <script lang="ts">
-	import type { IngestionProgress } from '$lib/features/ingestion';
+	import type { UploadProgressData } from '$lib/features/document-upload/upload.client';
 	import { cn } from '$lib/utils';
 	import { Loader2, CheckCircle2, AlertCircle, X } from '@lucide/svelte';
 	import { fade, slide } from 'svelte/transition';
 
 	let { progress, onClear } = $props<{ 
-		progress: IngestionProgress;
+		progress: UploadProgressData;
 		onClear: () => void;
 	}>();
 </script>

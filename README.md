@@ -1,6 +1,6 @@
 # Summarice
 
-A reading workspace for academic PDFs: highlight, annotate, summarize with citations, and search across your library. Built for CS 180.
+A reading workspace for academic PDFs: highlight, annotate, summarize with citations, and search across your library.
 
 ## How to run
 
@@ -14,17 +14,15 @@ Other scripts: `pnpm check` (svelte-check), `pnpm lint`, `pnpm format`, `pnpm te
 ## Top-level layout
 
 ```
-src/                  SvelteKit app (routes + lib + components)
+src/                  SvelteKit app (routes + lib)
   routes/             Pages, grouped into (auth) and (app)
   lib/                Shared code (client + server)
-    components/       UI: shadcn primitives + feature components
+    components/       Common UI: shadcn primitives + shared components
+    features/         Feature components and logic (highlights, document-upload, summary, viewer)
     pdf-highlighter/  Vendored PDF highlighter fork
-    ingestion/        PDF upload and text extraction pipeline
-    citations/        Markdown citation parsing/rendering
-    domain/           Shared types, DTOs, zod schemas
-    server/           Server-only modules (AI, Supabase, retrieval, summary, figures)
+    server/           Server-only modules (AI, Supabase, document-upload, summary, figures, limits)
 static/               Static assets served as-is
-data/                 Sample PDFs for development (AIC, Abstract, FullText)
+data/                 Sample PDFs for development
 supabase/             DB migrations, seed, Supabase CLI config
 eval/                 Python evaluation harness (deferred)
 e2e/                  Playwright tests
@@ -39,6 +37,8 @@ SvelteKit 2 + Svelte 5 · TypeScript · Tailwind 4 · shadcn-svelte · Supabase 
 ## Features
 
 - **Highlighting**: Text and area highlights persist to Supabase and render in the right sidebar. Semantic highlighting uses fixed slots `1..5` (Key idea, Definition, Evidence, Question, Contradiction).
+- **Summaries**: Automated, versioned document summaries with interactive citations linked back to source highlights.
+- **Figure Interpretation**: Multimodal AI interpretation of area highlights to describe diagrams and charts.
 - **Annotations**: Markdown notes on highlights with support for AI-authored content and CRUD operations.
 
 ## Team

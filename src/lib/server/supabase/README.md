@@ -1,16 +1,17 @@
-# `server/supabase/`
+# 🗄️ Database Layer (`src/lib/server/supabase/`)
 
-Supabase clients and **RLS-safe repositories**. The only place in the app that touches Postgres or Storage directly.
+This module manages all **Supabase clients and RLS-safe repositories**. It is the **only** place in the application that directly interacts with Postgres or Supabase Storage. 
 
-## What goes here
+## 🏗️ Architecture & Contents
 
-- A request-scoped Supabase client factory that carries the user's auth context (so RLS policies enforce tenancy).
-- A separate service-role client for admin paths only (used sparingly, never from a request handler that takes user input).
-- One repository module per entity (`documents.ts`, `highlights.ts`, `summaries.ts`, etc.) — these wrap raw queries and return domain types from `lib/domain/`.
-- SQL helpers for things that don't fit the supabase-js API cleanly (e.g. pgvector + FTS hybrid queries).
+To maintain a secure and decoupled architecture, this directory contains:
 
-## Conventions
+- **Auth-Scoped Clients:** A request-scoped Supabase client factory that securely carries the user's authentication context. This ensures that Postgres Row Level Security (RLS) policies successfully enforce multi-tenancy.
+- **Admin Clients:** A separate service-role client reserved *strictly* for admin paths. It should never be used from a request handler that processes untrusted user input.
+- **Entity Repositories:** One repository file per database entity (e.g., `documents.ts`, `highlights.ts`, `summaries.ts`). These repositories wrap the raw Supabase queries and return strongly-typed domain objects.
+- **SQL Helpers:** Utilities for complex database operations that don't cleanly fit into the standard `supabase-js` API, such as hybrid queries combining `pgvector` and Full Text Search (FTS).
 
-- Routes and other `server/*` modules call repositories — never the Supabase client directly.
-- Every read/write assumes RLS is on. If you need to bypass it, document why in a comment.
+## 📜 Core Conventions
 
+- **Repository Pattern:** API routes and other `server/*` modules must **always** call the repositories. They should never interact with the raw Supabase client directly.
+- **Always Assume RLS:** Every read and write operation is assumed to be protected by RLS. If you ever need to bypass RLS (using the service role key), you **must** document the reasoning clearly in a comment.

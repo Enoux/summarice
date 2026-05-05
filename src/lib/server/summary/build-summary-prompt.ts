@@ -1,8 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ModelMessage } from 'ai';
 import type { Annotation } from '$lib/pdf-highlighter/types';
-import type { HighlightRow } from '$lib/features/highlights/domain/highlight-mapper';
-import { parseCategoryLabels } from '$lib/features/highlights/domain/highlight-categories';
+import type { HighlightRow } from '$lib/server/highlights/highlight-service';
+import { parseCategoryLabels } from '$lib/highlights/color-slots';
 import {
 	buildHighlightPromptContext,
 	formatHighlightPromptContextForModel

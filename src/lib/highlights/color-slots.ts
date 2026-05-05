@@ -1,3 +1,5 @@
+import type { CommentedHighlight } from '$lib/pdf-highlighter/types';
+
 /** Fixed 5-slot semantic categories (PRD Decision J1). Slot ids are stable for prompts + queries. */
 
 export const CATEGORY_SLOT_IDS = [1, 2, 3, 4, 5] as const;
@@ -79,6 +81,17 @@ export function paletteFromSettings(
 		return { labels: lbls, hex };
 	}
 	return { labels: lbls, hex };
+}
+
+export function hexForNewHighlight(
+	h: CommentedHighlight,
+	opts: { decorative: boolean; decorativeDefaultHex: string; slotHexByIndex: string[] }
+): string {
+	if (opts.decorative) {
+		return h.display_color ?? opts.decorativeDefaultHex;
+	}
+	const idx = Math.min(Math.max(h.color_index ?? 0, 0), 4);
+	return opts.slotHexByIndex[idx] ?? DEFAULT_SLOT_HEX[(idx + 1) as CategorySlotId];
 }
 
 function hexToRgb(hex: string): [number, number, number] | null {

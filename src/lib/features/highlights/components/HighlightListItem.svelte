@@ -10,7 +10,7 @@
 		resolveHighlightPalette,
 		type CategorySlotId,
 		CATEGORY_SLOT_IDS
-	} from '$lib/features/highlights/domain/highlight-categories';
+	} from '$lib/highlights/color-slots';
 	import AnnotationList from './AnnotationList.svelte';
 	import { cn } from '$lib/utils';
 
