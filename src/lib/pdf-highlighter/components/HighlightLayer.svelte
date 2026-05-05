@@ -52,7 +52,9 @@
 		scaledPositionToViewport,
 		viewportToScaled
 	} from '$lib/pdf-highlighter/pdf_utils/coordinates';
+	import getBoundingRect from '$lib/pdf-highlighter/pdf_utils/get-bounding-rect';
 	import screenshot from '$lib/pdf-highlighter/pdf_utils/screenshot';
+	import trimClientRectsToText from '$lib/pdf-highlighter/pdf_utils/trim-client-rects-to-text';
 	import type { LTWH, LTWHP, ViewportHighlight } from '$lib/pdf-highlighter/types';
 	import HighlightChildrenWrapper from '$lib/pdf-highlighter/components/HighlightChildrenWrapper.svelte';
 
@@ -99,16 +101,42 @@
 		highlightBindings: HighlightBindings;
 	};
 
+	const trimStoredTextHighlight = (highlight: ViewportHighlight): ViewportHighlight => {
+		if (highlight.type !== 'text' || highlight.position.rects.length === 0) return highlight;
+
+		const pageView = viewer.getPageView(pageNumber - 1) as { div?: HTMLElement } | undefined;
+		const pageNode =
+			pageView?.div ??
+			(highlightBindings.textLayer.closest('.page') as HTMLElement | null) ??
+			highlightBindings.textLayer.parentElement;
+		const trimmedRects = trimClientRectsToText(
+			highlight.position.rects,
+			pageNode,
+			highlightBindings.textLayer
+		);
+
+		if (trimmedRects.length === 0) return highlight;
+
+		return {
+			...highlight,
+			position: {
+				...highlight.position,
+				rects: trimmedRects,
+				boundingRect: getBoundingRect(trimmedRects)
+			}
+		};
+	};
+
 	const getScaledHighlights = (highlights: Highlight[] | undefined): HighlightUtils[] => {
 		if (!highlights) highlights = [];
 		//console.log('run getScaledHighlights')
 		let new_currentHighlights = highlights.map((highlight) => {
 			if (!highlight.position) return null;
-			const viewportHighlight: ViewportHighlight = {
+			const viewportHighlight = trimStoredTextHighlight({
 				...highlight,
 				id: 'id' in highlight ? highlight.id : EMPTY_ID, // Give Empty ID to GhostHighlight
 				position: scaledPositionToViewport(highlight.position, viewer)
-			};
+			});
 
 			//const isScrolledTo = Boolean(pdfHighlighterUtils.scrolledToHighlightIdRef === viewportHighlight.id);
 
