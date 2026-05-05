@@ -233,18 +233,22 @@
 				</div>
 			{/if}
 		{:else}
-			<Summary
-				highlights={highlightsStore.highlights}
-				{viewerUtils}
-				{viewerColorMode}
-				onJumpToHighlight={(id) => {
-					selectedHighlightId = id;
-					activeTab = 'highlights';
-					document.getElementById(`sidebar-highlight-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-				}}
-				bind:activeCitations={activeSummaryCitations}
-				bind:scrollToHighlightId={summaryHighlightIdToScrollTo}
-			/>
+			{#if PUBLIC_MOCK_COMPONENTS === 'true'}
+				<MockSummary
+					highlights={highlightsStore.highlights}
+					{viewerUtils}
+					{viewerColorMode}
+					onJumpToHighlight={(id) => {
+						selectedHighlightId = id;
+						activeTab = 'highlights';
+						document.getElementById(`sidebar-highlight-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+					}}
+					bind:activeCitations={activeSummaryCitations}
+					bind:scrollToHighlightId={summaryHighlightIdToScrollTo}
+				/>
+			{:else}
+				<Summary />
+			{/if}
 		{/if}
 	</div>
 </aside>
