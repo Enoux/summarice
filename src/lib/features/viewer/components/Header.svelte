@@ -136,7 +136,7 @@
 								toggleValue = selectedTool;
 							}
 						}}
-						class="bg-muted/50 p-0.5 rounded-md"
+						class="bg-muted/50 p-0.5 rounded-[11.5px]"
 					>
 					<Tooltip.Root>
 						<Tooltip.Trigger>
