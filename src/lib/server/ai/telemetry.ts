@@ -3,6 +3,7 @@ import type { EmbeddingModelUsage, LanguageModelUsage } from 'ai';
 import type {
 	LLMCallContext,
 	LLMCallTelemetry,
+	LLMObjectStreamChunk,
 	LLMPricing,
 	LLMStreamChunk,
 	LLMTelemetryHooks,
@@ -101,6 +102,65 @@ export function normalizeStreamChunk(chunk: unknown, index: number): LLMStreamCh
 			toolName: part.toolName,
 			toolCallId: part.toolCallId,
 			input: part.input
+		};
+	}
+
+	if (part.type === 'error') {
+		return {
+			type: 'error',
+			index,
+			error: part.error instanceof Error ? part.error.message : String(part.error ?? 'Unknown stream error')
+		};
+	}
+
+	if (part.type === 'finish') {
+		const usage = usageFromLanguageModelUsage(part.usage);
+		return {
+			type: 'finish',
+			index,
+			finishReason: part.finishReason,
+			...(Object.keys(usage).length > 0 ? { usage } : {})
+		};
+	}
+
+	return undefined;
+}
+
+export function normalizeObjectStreamChunk<T = unknown>(
+	chunk: unknown,
+	index: number
+): LLMObjectStreamChunk<T> | undefined {
+	if (!chunk || typeof chunk !== 'object') return undefined;
+
+	const part = chunk as {
+		type?: string;
+		object?: unknown;
+		textDelta?: string;
+		error?: unknown;
+		finishReason?: LLMObjectStreamChunk<T> extends { type: 'finish'; finishReason?: infer R }
+			? R
+			: never;
+		usage?: LanguageModelUsage;
+	};
+
+	if (part.type === 'object') {
+		return {
+			type: 'object',
+			index,
+			object: (part.object ?? {}) as LLMObjectStreamChunk<T> extends {
+				type: 'object';
+				object: infer TObject;
+			}
+				? TObject
+				: never
+		};
+	}
+
+	if (part.type === 'text-delta') {
+		return {
+			type: 'text-delta',
+			index,
+			text: part.textDelta ?? ''
 		};
 	}
 

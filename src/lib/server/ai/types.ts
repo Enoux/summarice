@@ -1,4 +1,5 @@
 import type {
+	DeepPartial,
 	EmbeddingModelUsage,
 	FinishReason,
 	JSONValue,
@@ -95,6 +96,24 @@ export type LLMStreamResult = AsyncIterable<LLMStreamChunk> & {
 	telemetry: Promise<LLMCallTelemetry>;
 };
 
+export type LLMObjectStreamChunk<T = unknown> =
+	| { type: 'object'; index: number; object: DeepPartial<T> }
+	| { type: 'text-delta'; index: number; text: string }
+	| { type: 'error'; index: number; error: string }
+	| { type: 'finish'; index: number; finishReason?: FinishReason; usage?: LLMUsage };
+
+export type LLMObjectStreamResult<T = unknown> = {
+	partialObjectStream: AsyncIterable<DeepPartial<T>>;
+	telemetry: Promise<LLMCallTelemetry>;
+	finalObject: Promise<T>;
+};
+
+export type LLMStructuredObjectStreamResult<T = unknown> = {
+	partialObjectStream: AsyncIterable<DeepPartial<T>>;
+	finalObject: Promise<T>;
+	telemetry: Promise<LLMCallTelemetry>;
+};
+
 export type LLMEmbedOptions = LLMCallContext & {
 	text: string;
 	model?: string;
@@ -130,6 +149,7 @@ export type LLMVisionOptions = Omit<LLMGenerateOptions, 'messages'> & {
 export type LLMProvider = {
 	generate<T = unknown>(options: LLMGenerateOptions): Promise<LLMGenerateResult<T>>;
 	stream(options: LLMGenerateOptions): LLMStreamResult;
+	streamObject<T = unknown>(options: LLMGenerateOptions): LLMStructuredObjectStreamResult<T>;
 	embed(options: LLMEmbedOptions): Promise<LLMEmbedResult>;
 	embedMany(options: LLMEmbedManyOptions): Promise<LLMEmbedManyResult>;
 	vision<T = unknown>(options: LLMVisionOptions): Promise<LLMGenerateResult<T>>;

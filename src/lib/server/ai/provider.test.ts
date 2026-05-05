@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
 	estimateCostUsd,
+	normalizeObjectStreamChunk,
 	normalizeStreamChunk,
 	providerReportedCostUsdFromMetadata,
 	usageFromLanguageModelUsage
@@ -25,6 +26,30 @@ describe('AI provider telemetry and stream normalization', () => {
 			type: 'finish',
 			index: 4,
 			finishReason: 'stop'
+		});
+	});
+
+	it('normalizes object-stream chunks to a provider-independent shape', () => {
+		expect(
+			normalizeObjectStreamChunk<{ markdown: string }>(
+				{ type: 'object', object: { markdown: 'Hello' } },
+				0
+			)
+		).toEqual({
+			type: 'object',
+			index: 0,
+			object: { markdown: 'Hello' }
+		});
+
+		expect(
+			normalizeObjectStreamChunk<{ markdown: string }>(
+				{ type: 'text-delta', textDelta: '{"markdown":"He' },
+				1
+			)
+		).toEqual({
+			type: 'text-delta',
+			index: 1,
+			text: '{"markdown":"He'
 		});
 	});
 

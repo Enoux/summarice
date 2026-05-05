@@ -1,5 +1,5 @@
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
-import { embed, embedMany, generateText, streamText } from 'ai';
+import { embed, embedMany, generateText, streamObject, streamText } from 'ai';
 import type { ModelMessage, UserModelMessage } from 'ai';
 
 import {
@@ -17,6 +17,7 @@ import type {
 	LLMPricing,
 	LLMProvider,
 	LLMStreamResult,
+	LLMStructuredObjectStreamResult,
 	LLMTelemetryHooks,
 	LLMVisionImage,
 	LLMVisionOptions
@@ -178,6 +179,73 @@ export function createOpenRouterLLMProvider(options: OpenRouterLLMProviderOption
 		return Object.assign(chunks(), { telemetry: Promise.resolve(telemetry) });
 	}
 
+	function streamStructuredObject<T = unknown>(
+		streamOptions: LLMGenerateOptions
+	): LLMStructuredObjectStreamResult<T> {
+		const modelId = languageModel(streamOptions.model);
+		const startedAt = performance.now();
+		let settledUsage = {};
+
+		const signal = combineSignals(streamOptions.abortSignal);
+
+		const result = streamObject({
+			model: openRouterLanguageModel(modelId),
+			system: streamOptions.system,
+			messages: streamOptions.messages,
+			output: 'object',
+			schema: streamOptions.schema as never,
+			providerOptions: streamOptions.providerOptions,
+			temperature: streamOptions.temperature,
+			maxOutputTokens: streamOptions.maxOutputTokens,
+			abortSignal: signal,
+			onFinish: ({ usage }) => {
+				settledUsage = usageFromLanguageModelUsage(usage);
+			}
+		});
+
+		const telemetry = result.usage.then(async (usage) => {
+			const providerMetadata = await result.providerMetadata;
+			const normalizedUsage = usageFromLanguageModelUsage(usage) ?? settledUsage;
+			const callTelemetry: LLMCallTelemetry = {
+				provider: providerName,
+				model: modelId,
+				operation: streamOptions.operation,
+				ownerId: streamOptions.ownerId,
+				documentId: streamOptions.documentId,
+				highlightId: streamOptions.highlightId,
+				latencyMs: Math.round(performance.now() - startedAt),
+				usage: normalizedUsage,
+				providerMetadata,
+				costUsd: providerReportedCostUsdFromMetadata(providerMetadata),
+				estimatedCostUsd: estimateCostUsd(normalizedUsage, options.pricing?.generate)
+			};
+
+			await options.telemetry?.onFinish?.(callTelemetry);
+			return callTelemetry;
+		});
+
+		const partialObjectStream = (async function* () {
+			await options.telemetry?.onStart?.({
+				provider: providerName,
+				model: modelId,
+				operation: streamOptions.operation,
+				ownerId: streamOptions.ownerId,
+				documentId: streamOptions.documentId,
+				highlightId: streamOptions.highlightId
+			});
+
+			for await (const partialObject of result.partialObjectStream) {
+				yield partialObject;
+			}
+		})();
+
+		return {
+			partialObjectStream,
+			finalObject: result.object as Promise<T>,
+			telemetry: Promise.resolve(telemetry)
+		};
+	}
+
 	async function embedOne(embedOptions: Parameters<LLMProvider['embed']>[0]) {
 		const modelId = embeddingModel(embedOptions.model);
 		const { value, telemetry } = await withTelemetry({
@@ -248,6 +316,7 @@ export function createOpenRouterLLMProvider(options: OpenRouterLLMProviderOption
 	return {
 		generate,
 		stream,
+		streamObject: streamStructuredObject,
 		embed: embedOne,
 		embedMany: embedTexts,
 		vision
