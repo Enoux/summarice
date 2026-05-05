@@ -22,16 +22,16 @@
 	import {
 		CATEGORY_SLOT_IDS,
 		canonicalHighlightPalette,
-		resolveHighlightPalette
-	} from '$lib/features/highlights/domain/highlight-categories';
-	import { hexForNewHighlight } from '$lib/features/highlights/domain/highlight-mapper';
+		resolveHighlightPalette,
+		hexForNewHighlight
+	} from '$lib/highlights/color-slots';
 	import {
 		applyPersistedHighlight,
 		buildOptimisticHighlight,
-		type PersistedHighlightResponse
-	} from '$lib/features/highlights/domain/highlight-client';
-	import { createHighlightCommentSaver } from '$lib/features/highlights/domain/highlight-comment-client';
-	import { applyHighlightSelection } from '$lib/features/highlights/domain/highlight-selection';
+		type PersistedHighlightResponse,
+		createHighlightCommentSaver,
+		applyHighlightSelection
+	} from '$lib/features/highlights/logic';
 	import { zoomIn, zoomOut } from '$lib/pdf-highlighter/lib/zoom';
 	import { toast } from 'svelte-sonner';
 	import { createFigureInterpretation } from './figure-interpretation.remote';

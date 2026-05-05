@@ -4,10 +4,10 @@ import {
 	ensureUserSettingsRow,
 	fetchHighlightsForDocument,
 	fetchUserSettings,
+	rowToCommentedHighlight,
 	rowToCommentedHighlightWithScreenshot
 } from '$lib/server/highlights/highlight-service';
-import type { rowToCommentedHighlight } from '$lib/features/highlights/domain/highlight-mapper';
-import { parseCategoryLabels } from '$lib/features/highlights/domain/highlight-categories';
+import { parseCategoryLabels } from '$lib/highlights/color-slots';
 
 export const load: PageServerLoad = async ({ params, locals: { supabase, user } }) => {
 	try {
