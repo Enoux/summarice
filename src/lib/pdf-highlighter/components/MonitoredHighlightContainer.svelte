@@ -40,6 +40,11 @@
 
 <script lang="ts">
 	import { onDestroy } from 'svelte';
+	import {
+		HOVER_BRIDGE_STOP_EVENT,
+		HOVER_TIP_LEAVE_EVENT,
+		TIP_CONTAINER_SELECTOR
+	} from '$lib/pdf-highlighter/lib/tip-hover-contract';
 
 	/**
 	 * A container for a highlight component that monitors whether a mouse is over a
@@ -60,8 +65,6 @@
 	//const { isEditingOrHighlighting } = pdfHighlighterUtils;
 	//let tipContainerState = setContext('tipContainerState', highlightTip);
 	const DEBUG_HOVER_BRIDGE = false;
-	const HOVER_BRIDGE_STOP_EVENT = 'pdf-highlighter:hover-bridge-stop';
-	const HOVER_TIP_LEAVE_EVENT = 'pdf-highlighter:hover-tip-leave';
 	let bridgePointerMove: ((event: PointerEvent) => void) | null = null;
 	let bridgeShouldStayOpen: ((x: number, y: number) => boolean) | null = null;
 	let debugBridgePoints = $state<string | null>(null);
@@ -164,7 +167,7 @@
 	function startBridgeTracking(container: HTMLElement, event: MouseEvent) {
 		stopBridgeTracking();
 
-		const tipNode = document.querySelector<HTMLElement>('.hl_tip_container');
+		const tipNode = document.querySelector<HTMLElement>(TIP_CONTAINER_SELECTOR);
 		const highlightRect = getHighlightBodyRect(container);
 		if (!tipNode || !highlightRect) {
 			pdfHighlighterUtils.setTip?.({ show: false });
@@ -200,7 +203,7 @@
 
 		bridgePointerMove = (moveEvent: PointerEvent) => {
 			const target = moveEvent.target instanceof Element ? moveEvent.target : null;
-			if (target?.closest('.hl_tip_container')) {
+			if (target?.closest(TIP_CONTAINER_SELECTOR)) {
 				return;
 			}
 			const targetHighlight = target?.closest<HTMLElement>('.highlight_container');
@@ -252,7 +255,11 @@
 	id={highlightTip?.content?.highlight?.id
 		? `highlight-${highlightTip.content.highlight.id}`
 		: undefined}
-	onmouseenter={(event: MouseEvent) => {
+	onmouseover={(event: MouseEvent) => {
+		const target = event.currentTarget as HTMLElement;
+		const from = event.relatedTarget as HTMLElement;
+		if (target.contains(from)) return; // Ignore internal moves
+
 		if (
 			highlightId &&
 			pdfHighlighterUtils.activeTipPinned &&
@@ -270,7 +277,10 @@
 		document.dispatchEvent(new CustomEvent(HOVER_BRIDGE_STOP_EVENT));
 		stopBridgeTracking();
 		onMouseEnter?.();
-		//if (isEditingOrHighlighting()) return;
+
+		// Set global hover state
+		pdfHighlighterUtils.setHoveredHighlightId?.(highlightId ?? null);
+
 		if (highlightTip) {
 			// MouseMonitor the highlightTip to prevent it from disappearing if the mouse is over it and not the highlight.
 			pdfHighlighterUtils.setTip?.({
@@ -284,16 +294,26 @@
 			});
 		}
 	}}
-	onmouseleave={(event: MouseEvent & { currentTarget: EventTarget & HTMLElement }) => {
+	onmouseout={(event: MouseEvent & { currentTarget: EventTarget & HTMLElement }) => {
+		const target = event.currentTarget as HTMLElement;
+		const to = event.relatedTarget as HTMLElement;
+		if (target.contains(to)) return; // Ignore internal moves
+
 		const nextTarget = event.relatedTarget as HTMLElement | null;
-		const movedIntoTip = !!nextTarget?.closest('.hl_tip_container');
+		const movedIntoTip = !!nextTarget?.closest(TIP_CONTAINER_SELECTOR);
 
 		if (!movedIntoTip) {
 			startBridgeTracking(event.currentTarget, event);
 		}
 
+		// Clear global hover state if not moving into tip
+		if (!movedIntoTip) {
+			pdfHighlighterUtils.setHoveredHighlightId?.(null);
+		}
+
 		if (!highlightTip && !movedIntoTip) onMouseLeave?.();
 	}}
+
 >
 	{@render children()}
 </div>

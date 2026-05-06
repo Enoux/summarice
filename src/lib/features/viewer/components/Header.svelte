@@ -1,0 +1,369 @@
+<script lang="ts">
+	import type { PdfHighlighterUtils } from '$lib/pdf-highlighter/types';
+	import type { Highlight } from '$lib/pdf-highlighter/types';
+
+	import ZoomControl from './ZoomControl.svelte';
+	import ExportButton from './ExportButton.svelte';
+	import HighlighterOverlay from '$lib/features/highlights/components/HighlighterOverlay.svelte';
+	import { Button } from '$lib/components/ui/button';
+	import { Slider } from '$lib/components/ui/slider';
+	import * as Tooltip from '$lib/components/ui/tooltip';
+	import { TooltipProvider } from '$lib/components/ui/tooltip';
+	import * as ToggleGroup from "$lib/components/ui/toggle-group";
+	import * as DropdownMenu from "$lib/components/ui/dropdown-menu";
+	import {
+		MAX_ZOOM_SCALE,
+		MIN_ZOOM_SCALE,
+		ZOOM_STEP,
+		normalizeZoomScale,
+		zoomIn,
+		zoomOut
+	} from '$lib/pdf-highlighter/lib/zoom';
+	import { 
+		PanelLeftClose, 
+		PanelLeft, 
+		PanelRightClose, 
+		PanelRight,
+		MousePointer2,
+		Hand,
+		Highlighter,
+		Square,
+		Wrench,
+		ZoomIn,
+		ZoomOut,
+		RotateCcw,
+		Search
+	} from '@lucide/svelte';
+
+	interface Props {
+		utils: Partial<PdfHighlighterUtils>;
+		title?: string;
+		pdfSource: string;
+		highlights: Highlight[];
+		leftPanelOpen: boolean;
+		onLeftPanelOpenChange: (v: boolean) => void;
+		sidebarOpen: boolean;
+		onSidebarOpenChange: (v: boolean) => void;
+		categoryLabels: string[];
+		decorative: boolean;
+	}
+
+	let {
+		utils,
+		pdfSource,
+		highlights,
+		leftPanelOpen,
+		onLeftPanelOpenChange,
+		sidebarOpen,
+		onSidebarOpenChange,
+		categoryLabels,
+		decorative
+	}: Props = $props();
+
+	let selectedTool = $derived(utils.selectedTool || 'text_selection');
+	let activeColorIndex = $derived(utils.selectedColorIndex ?? 0);
+	let colors = $derived(utils.colors ?? []);
+	let activeColor = $derived(colors[activeColorIndex] || '#facc15');
+	let activeColorName = $derived(categoryLabels[activeColorIndex] || `Slot ${activeColorIndex + 1}`);
+
+	const currentScale = $derived.by(() => {
+		const s = utils.currentScale;
+		if (typeof s === 'number' && !Number.isNaN(s)) {
+			return normalizeZoomScale(s);
+		}
+		return 1;
+	});
+
+	function setTool(tool: any) {
+		// @ts-ignore
+		utils.selectedTool = tool;
+	}
+
+	function handleColorSelect(index: number) {
+		utils.selectedColorIndex = index;
+	}
+
+	let toggleValue = $state(selectedTool);
+	$effect(() => {
+		toggleValue = selectedTool;
+	});
+</script>
+
+<TooltipProvider delayDuration={750}>
+	<header
+		class="relative flex h-11 shrink-0 select-none items-center justify-between border-b border-border bg-muted/30 px-3 transition-colors"
+	>
+		<!-- Left: Side Panel Toggle -->
+		<div class="flex shrink-0 items-center gap-2">
+			<Tooltip.Root>
+				<Tooltip.Trigger>
+					{#snippet child({ props })}
+						<Button
+							{...props}
+							variant="ghost"
+							size="icon"
+							class="h-8 w-8 shrink-0"
+							onclick={() => onLeftPanelOpenChange(!leftPanelOpen)}
+							aria-label={leftPanelOpen ? 'Hide side panel' : 'Show side panel'}
+						>
+							{#if leftPanelOpen}
+								<PanelLeftClose class="size-3.5" />
+							{:else}
+								<PanelLeft class="size-3.5" />
+							{/if}
+						</Button>
+					{/snippet}
+				</Tooltip.Trigger>
+				<Tooltip.Content side="bottom">
+					{leftPanelOpen ? 'Hide side panel' : 'Show side panel'}
+				</Tooltip.Content>
+			</Tooltip.Root>
+		</div>
+
+		<!-- Center: Tools & Zoom -->
+		<div class="center-container relative flex flex-1 min-w-0 items-center justify-center gap-1.5">
+			<!-- Desktop: Full Tools Bar -->
+			<div class="desktop-tools items-center gap-1.5">
+				<div class="relative flex items-center">
+					<ToggleGroup.Root
+						type="single"
+						bind:value={toggleValue}
+						onValueChange={(v) => { 
+							if (v) {
+								setTool(v); 
+							} else {
+								// Force the UI to stay active even if clicked again
+								toggleValue = selectedTool;
+							}
+						}}
+						class="bg-muted/50 p-0.5 rounded-[11.5px]"
+					>
+					<Tooltip.Root>
+						<Tooltip.Trigger>
+							{#snippet child({ props })}
+								<ToggleGroup.Item value="text_selection" aria-label="Text Selection" {...props} class="h-7 w-7 	rounded-lg p-0 data-[state=on]:bg-background/60 data-[state=on]:shadow-[0_1px_2px_rgba(0,0,0,0.05)] data-[state=on]:ring-1 data-[state=on]:ring-border/50">
+									<MousePointer2 class="size-3.5" />
+								</ToggleGroup.Item>
+							{/snippet}
+						</Tooltip.Trigger>
+						<Tooltip.Content side="bottom">Text Selection</Tooltip.Content>
+					</Tooltip.Root>
+
+					<Tooltip.Root>
+						<Tooltip.Trigger>
+							{#snippet child({ props })}
+								<ToggleGroup.Item value="hand" aria-label="Hand Tool" {...props} class="h-7 w-7 rounded-lg p-0 data-[state=on]:bg-background/60 data-[state=on]:shadow-[0_1px_2px_rgba(0,0,0,0.05)] data-[state=on]:ring-1 data-[state=on]:ring-border/50">
+									<Hand class="size-3.5" />
+								</ToggleGroup.Item>
+							{/snippet}
+						</Tooltip.Trigger>
+						<Tooltip.Content side="bottom">Hand Tool</Tooltip.Content>
+					</Tooltip.Root>
+
+					<Tooltip.Root>
+						<Tooltip.Trigger>
+							{#snippet child({ props })}
+								<ToggleGroup.Item 
+									value="highlight_pen" 
+									aria-label="Highlight Pen" 
+									{...props} 
+									class="h-7 w-7 rounded-lg p-0 transition-colors data-[state=on]:bg-background/60 data-[state=on]:shadow-[0_1px_2px_rgba(0,0,0,0.05)] data-[state=on]:ring-1 data-[state=on]:ring-border/50"
+									style={selectedTool === 'highlight_pen' ? `color: ${activeColor}` : ''}
+								>
+									<Highlighter class="size-3.5" />
+								</ToggleGroup.Item>
+							{/snippet}
+						</Tooltip.Trigger>
+						<Tooltip.Content side="bottom">Highlight Pen</Tooltip.Content>
+					</Tooltip.Root>
+
+					<Tooltip.Root>
+						<Tooltip.Trigger>
+							{#snippet child({ props })}
+								<ToggleGroup.Item value="area_selection" aria-label="Area Selection" {...props} class="h-7 w-7 rounded-lg p-0 data-[state=on]:bg-background/60 data-[state=on]:shadow-[0_1px_2px_rgba(0,0,0,0.05)] data-[state=on]:ring-1 data-[state=on]:ring-border/50">
+									<Square class="size-3.5" />
+								</ToggleGroup.Item>
+							{/snippet}
+						</Tooltip.Trigger>
+						<Tooltip.Content side="bottom">Area Selection</Tooltip.Content>
+					</Tooltip.Root>
+				</ToggleGroup.Root>
+
+				<!-- Highlighter Overlay - Anchored to the 3rd item in ToggleGroup (Highlighter) -->
+				{#if selectedTool === 'highlight_pen'}
+					<div class="absolute inset-x-0 top-full z-50 pt-1.5 desktop-only-overlay pointer-events-none">
+						<div class="relative left-[62.5%] -translate-x-1/2 w-fit pointer-events-auto">
+							<HighlighterOverlay 
+								{activeColor} 
+								{activeColorName} 
+								{categoryLabels} 
+								{colors} 
+								{decorative}
+								onColorSelect={handleColorSelect}
+							/>
+						</div>
+					</div>
+				{/if}
+				</div>
+
+				<div class="mx-1 h-4 w-[1px] bg-border"></div>
+
+				<DropdownMenu.Root>
+					<DropdownMenu.Trigger>
+						{#snippet child({ props })}
+							<Button variant="ghost" size="icon" class="h-7 w-7 p-0" {...props}>
+								<Search class="size-3.5" />
+							</Button>
+						{/snippet}
+					</DropdownMenu.Trigger>
+					<DropdownMenu.Content align="center" class="w-44 p-2">
+						<div class="px-2 py-3">
+							<Slider
+								min={MIN_ZOOM_SCALE}
+								max={MAX_ZOOM_SCALE}
+								step={ZOOM_STEP}
+								value={currentScale}
+								onValueChange={(v) => utils.setCurrentScaleValue?.(normalizeZoomScale(v))}
+							/>
+						</div>
+						
+						<DropdownMenu.Separator />
+						
+						<DropdownMenu.Item onclick={() => utils.setCurrentScaleValue?.(zoomIn(currentScale))} closeOnSelect={false}>
+							<ZoomIn class="mr-2 size-4" />
+							Zoom In
+						</DropdownMenu.Item>
+						<DropdownMenu.Item onclick={() => utils.setCurrentScaleValue?.(zoomOut(currentScale))} closeOnSelect={false}>
+							<ZoomOut class="mr-2 size-4" />
+							Zoom Out
+						</DropdownMenu.Item>
+						<DropdownMenu.Item onclick={() => utils.setCurrentScaleValue?.('auto')} closeOnSelect={false}>
+							<RotateCcw class="mr-2 size-4" />
+							Fit Page
+						</DropdownMenu.Item>
+					</DropdownMenu.Content>
+				</DropdownMenu.Root>
+			</div>
+
+			<!-- Mobile/Tablet: Dropdown Menu -->
+			<div class="mobile-tools">
+				<DropdownMenu.Root>
+					<DropdownMenu.Trigger>
+						{#snippet child({ props })}
+							<Button variant="ghost" size="icon" class="h-8 w-8" {...props}>
+								<Wrench class="size-4" />
+							</Button>
+						{/snippet}
+					</DropdownMenu.Trigger>
+					<DropdownMenu.Content align="center" class="w-48">
+						<DropdownMenu.Label>Tools</DropdownMenu.Label>
+						<DropdownMenu.RadioGroup value={selectedTool} onValueChange={setTool}>
+							<DropdownMenu.RadioItem value="text_selection">
+								<MousePointer2 class="mr-2 size-4" />
+								Text Selection
+							</DropdownMenu.RadioItem>
+							<DropdownMenu.RadioItem value="hand">
+								<Hand class="mr-2 size-4" />
+								Hand Tool
+							</DropdownMenu.RadioItem>
+							<DropdownMenu.RadioItem value="highlight_pen">
+								<Highlighter class="mr-2 size-4" />
+								Highlighter
+							</DropdownMenu.RadioItem>
+							<DropdownMenu.RadioItem value="area_selection">
+								<Square class="mr-2 size-4" />
+								Area Selection
+							</DropdownMenu.RadioItem>
+						</DropdownMenu.RadioGroup>
+						<DropdownMenu.Separator />
+						<DropdownMenu.Label>Zoom</DropdownMenu.Label>
+						<DropdownMenu.Item onclick={() => utils.setCurrentScaleValue?.(zoomIn(currentScale))} closeOnSelect={false}>
+							<ZoomIn class="mr-2 size-4" />
+							Zoom In
+						</DropdownMenu.Item>
+						<DropdownMenu.Item onclick={() => utils.setCurrentScaleValue?.(zoomOut(currentScale))} closeOnSelect={false}>
+							<ZoomOut class="mr-2 size-4" />
+							Zoom Out
+						</DropdownMenu.Item>
+						<DropdownMenu.Item onclick={() => utils.setCurrentScaleValue?.('auto')} closeOnSelect={false}>
+							<RotateCcw class="mr-2 size-4" />
+							Fit Page
+						</DropdownMenu.Item>
+					</DropdownMenu.Content>
+				</DropdownMenu.Root>
+			</div>
+		</div>
+		
+		<!-- Right: Export & Sidebar Toggle -->
+		<div class="flex shrink-0 items-center gap-2">
+			<ExportButton {pdfSource} {highlights} />
+			
+			<div class="h-4 w-[1px] bg-border"></div>
+
+			<Tooltip.Root>
+				<Tooltip.Trigger>
+					{#snippet child({ props })}
+						<Button
+							{...props}
+							variant="ghost"
+							size="icon"
+							class="h-8 w-8 shrink-0"
+							onclick={() => onSidebarOpenChange(!sidebarOpen)}
+							aria-label={sidebarOpen ? 'Hide highlights panel' : 'Show highlights panel'}
+						>
+							{#if sidebarOpen}
+								<PanelRightClose class="size-3.5" />
+							{:else}
+								<PanelRight class="size-3.5" />
+							{/if}
+						</Button>
+					{/snippet}
+				</Tooltip.Trigger>
+				<Tooltip.Content side="bottom">
+					{sidebarOpen ? 'Hide highlights panel' : 'Show highlights panel'}
+				</Tooltip.Content>
+			</Tooltip.Root>
+		</div>
+	</header>
+</TooltipProvider>
+
+<style>
+	.center-container {
+		container-type: inline-size;
+	}
+
+	.desktop-tools {
+		display: none;
+	}
+
+	.mobile-tools {
+		display: flex;
+	}
+
+	@container (min-width: 190px) {
+		.desktop-tools {
+			display: flex;
+		}
+		.mobile-tools {
+			display: none;
+		}
+	}
+
+	.desktop-only-overlay {
+		display: none;
+	}
+
+	@container (min-width: 190px) {
+		.desktop-only-overlay {
+			display: block;
+		}
+	}
+
+	.scrollbar-hide::-webkit-scrollbar {
+		display: none;
+	}
+	.scrollbar-hide {
+		-ms-overflow-style: none;
+		scrollbar-width: none;
+	}
+</style>

@@ -7,6 +7,7 @@
 	import { getContext } from 'svelte';
 	import type {
 		CommentedHighlight,
+		HighlightAdjustmentDraft,
 		Tip,
 		ViewportHighlight,
 		PdfHighlighterUtils as TPdfHighlighterUtils,
@@ -20,6 +21,8 @@
 		onClick?: (event: MouseEvent, highlight: ViewportHighlight<CommentedHighlight>) => void;
 		pdfHighlighterUtils: Partial<TPdfHighlighterUtils>;
 		highlightMixBlendMode?: string;
+		adjustmentDraft?: HighlightAdjustmentDraft | null;
+		onUpdateAdjustmentDraft?: (draft: HighlightAdjustmentDraft) => void;
 	}
 
 	interface HighlightUtilsContext {
@@ -34,7 +37,9 @@
 		onContextMenu,
 		onClick,
 		pdfHighlighterUtils,
-		highlightMixBlendMode = 'normal'
+		highlightMixBlendMode = 'normal',
+		adjustmentDraft,
+		onUpdateAdjustmentDraft
 	}: HighlightContainerProps = $props();
 
 	//context set in HighLightLayer
@@ -42,6 +47,7 @@
 		getContext('highlightUtils'); //HighlightContext
 
 	//const { toggleEditInProgress } = pdfHighlighterUtils; //usePdfHighlighterContext();
+	const isAdjustingThisHighlight = $derived(adjustmentDraft?.highlightId === highlight.id);
 	let highlightTip: Tip = $state({
 		position: highlight.position,
 		content: { highlight }
@@ -68,6 +74,7 @@
 			{highlight}
 			onChange={(boundingRect) => {
 				if (!highlight.id) return;
+				if (!isAdjustingThisHighlight || !adjustmentDraft) return;
 				const edit = {
 					position: {
 						boundingRect: viewportToScaled(boundingRect),
@@ -78,6 +85,11 @@
 					}
 				};
 				editHighlight(highlight.id, edit);
+				onUpdateAdjustmentDraft?.({
+					...adjustmentDraft,
+					position: edit.position,
+					image: edit.content.image
+				});
 				//toggleEditInProgress(false);
 			}}
 			bounds={highlightBindings.textLayer}
@@ -85,7 +97,7 @@
 			onClick={(event) => onClick?.(event, highlight)}
 			{pdfHighlighterUtils}
 			highlightMixBlendMode={pdfHighlighterUtils.highlightMixBlendMode ?? highlightMixBlendMode}
-			isDraggable={false}
+			isDraggable={isAdjustingThisHighlight}
 		/>
 	{/if}
 </MonitoredHighlightContainer>

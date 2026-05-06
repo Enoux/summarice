@@ -43,6 +43,7 @@
 <script lang="ts">
 	//TODO: DRY?
 	import { debounce } from '$lib/pdf-highlighter/utils';
+	import { resolveHighlightColor } from '$lib/highlights/color-slots';
 
 	/**
 	 * A component for displaying a highlighted text area.
@@ -60,8 +61,11 @@
 	const { rects } = highlight.position;
 
 	const scrolledToColor = pdfHighlighterUtils.scrolledTo_color;
+	const currentThemeMode = $derived(pdfHighlighterUtils.viewerTheme?.mode ?? 'light');
 	const color = $derived.by(() => {
-		if (highlight.display_color) return highlight.display_color;
+		if (highlight.display_color) {
+			return resolveHighlightColor(highlight.display_color, currentThemeMode);
+		}
 		if (highlight.color_index !== undefined && highlight.color_index !== null) {
 			return pdfHighlighterUtils.colors?.[highlight.color_index] ?? 'lightgrey';
 		}

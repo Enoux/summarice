@@ -36,3 +36,8 @@ supabase db reset                       # to test locally
 
 Tables: `profiles`, `documents`, `document_pages`, `highlights`, `annotations`, `highlight_embeddings`, `summaries`, `summary_citations`, `llm_calls`.
 
+## Highlight screenshots and LLM telemetry
+
+- Private highlight screenshots live in the `highlight-screenshots` storage bucket.
+- Screenshot object paths are owner-scoped as `{userId}/{documentId}/{highlightId}.png`.
+- `llm_calls` rows are readable by the owning user; writes are intended for server-side code using the service role.

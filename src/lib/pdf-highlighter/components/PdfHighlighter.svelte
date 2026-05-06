@@ -11,7 +11,9 @@
 	import type {
 		ViewportHighlight as ModuleViewportHighlight,
 		CommentedHighlight as ModuleCommentedHighlight,
-		PdfHighlighterUtils as ModulePdfHighlighterUtils
+		PdfHighlighterUtils as ModulePdfHighlighterUtils,
+		HighlightAdjustmentDraft as ModuleHighlightAdjustmentDraft,
+		HighlightPopupActionState as ModuleHighlightPopupActionState
 	} from '$lib/pdf-highlighter/types';
 	import type { PdfHighlighterTheme } from '$lib/pdf-highlighter/lib/theme';
 	type PDFViewerOptions = Record<string, unknown>;
@@ -53,6 +55,15 @@
 			comment: string
 		) => Promise<unknown>;
 		deleteHighlight?: (highlight: ModuleCommentedHighlight) => Promise<void>;
+		onExplainFigure?: (highlight: ModuleCommentedHighlight) => Promise<void>;
+		onConfirmReExplainFigure?: (highlight: ModuleCommentedHighlight) => Promise<void>;
+		onCancelReExplainFigure?: () => void;
+		onStartAdjustHighlight?: (highlight: ModuleCommentedHighlight) => void;
+		onSaveAdjustedHighlight?: (draft: ModuleHighlightAdjustmentDraft) => Promise<void>;
+		onCancelAdjustHighlight?: () => void;
+		onUpdateAdjustmentDraft?: (draft: ModuleHighlightAdjustmentDraft) => void;
+		actionState?: ModuleHighlightPopupActionState;
+		adjustmentDraft?: ModuleHighlightAdjustmentDraft | null;
 	}
 </script>
 
@@ -70,6 +81,8 @@
 		ViewportPosition,
 		Content,
 		CommentedHighlight,
+		LTWHP,
+		Page,
 		PdfHighlighterUtils as TPdfHighlighterUtils,
 		TipContainerState as TTipContainerState,
 		PdfScaleValue
@@ -102,12 +115,15 @@
 	} from 'pdfjs-dist/web/pdf_viewer.mjs';
 	import { debounce } from '$lib/pdf-highlighter/utils';
 	import { resolvePdfHighlighterTheme } from '$lib/pdf-highlighter/lib/theme';
+	import { canonicalHighlightPalette } from '$lib/highlights/color-slots';
+	import trimClientRectsToText from '$lib/pdf-highlighter/pdf_utils/trim-client-rects-to-text';
 	import { getHighlightScrollTargetState } from '$lib/pdf-highlighter/lib/scroll-target';
 	import {
 		isPresetZoomValue,
 		normalizeZoomScale,
-		normalizeZoomValue,
+		normalizeZoomValue
 	} from '$lib/pdf-highlighter/lib/zoom';
+	import { TIP_CONTAINER_SELECTOR } from '$lib/pdf-highlighter/lib/tip-hover-contract';
 
 	type PointerEventHandler = (
 		event: PointerEvent & { currentTarget: EventTarget & HTMLElement }
@@ -156,7 +172,16 @@
 		scaleOnResize = false,
 		prepareHighlightForAdd,
 		saveHighlightComment,
-		deleteHighlight
+		deleteHighlight,
+		onExplainFigure,
+		onConfirmReExplainFigure,
+		onCancelReExplainFigure,
+		onStartAdjustHighlight,
+		onSaveAdjustedHighlight,
+		onCancelAdjustHighlight,
+		onUpdateAdjustmentDraft,
+		actionState,
+		adjustmentDraft
 	}: pdfHighlighterProps = $props();
 
 	let resolvedTheme = $derived(resolvePdfHighlighterTheme(userTheme));
@@ -195,6 +220,15 @@
 	let findController_instance: TPDFFindController;
 	let clearScrollFlashTimeout: ReturnType<typeof setTimeout> | null = null;
 	let activeScrollTargetRef: { highlightId?: string; targetTop: number } | null = null;
+
+	const trimSelectionRectsToText = (rects: LTWHP[], pages: Page[]): LTWHP[] => {
+		return pages.flatMap((page) => {
+			const pageRects = rects.filter((rect) => rect.pageNumber === page.number);
+			if (pageRects.length === 0) return [];
+			const textLayer = page.node.querySelector('.textLayer') as HTMLElement | null;
+			return trimClientRectsToText(pageRects, page.node, textLayer);
+		});
+	};
 
 	const defaultSearchOptions: SearchOptions = {
 		type: 'again',
@@ -474,7 +508,7 @@
 		const pages = getPagesFromRange(range);
 		if (!pages || pages.length === 0) return;
 
-		const rects = getClientRects(range, pages);
+		const rects = trimSelectionRectsToText(getClientRects(range, pages), pages);
 		if (rects.length === 0) return;
 
 		const viewportPosition: ViewportPosition = {
@@ -545,7 +579,7 @@
 	const handleMouseDown: PointerEventHandler = (event) => {
 		event.stopPropagation();
 		if (!(event.target instanceof Element)) return;
-		if (event.target.closest('.hl_tip_container')) return;
+		if (event.target.closest(TIP_CONTAINER_SELECTOR)) return;
 		clearTextSelection();
 		if (
 			pdfHighlighterUtils.selectedTool === 'hand' ||
@@ -665,9 +699,23 @@
 		selection.removeAllRanges();
 	};
 
+	function pulseHighlight(highlight_id: string) {
+		if (!highlight_id) return;
+		baseUtils.scrolledToHighlightIdRef = highlight_id;
+		if (clearScrollFlashTimeout) clearTimeout(clearScrollFlashTimeout);
+		clearScrollFlashTimeout = setTimeout(() => {
+			baseUtils.scrolledToHighlightIdRef = '';
+			clearScrollFlashTimeout = null;
+		}, 800); // 800ms for a more visible flash
+	}
+
 	const baseUtils = {
 		search: search,
 		searchState: { matchesCount: { current: 0, total: 0 } },
+
+		pulseHighlight: function (id: string) {
+			pulseHighlight(id);
+		},
 
 		scrollToHighlight: function (highlight: Highlight, useFlash = true) {
 			if (!highlight.position?.boundingRect || !viewerRef) return;
@@ -679,11 +727,11 @@
 			const pageElement = pageView?.div as HTMLElement | undefined;
 			if (!pageViewport || !pageElement) return;
 
-				// Remove scroll listener in case user auto-scrolls in succession.
-				viewerRef.container.removeEventListener('scroll', handleScroll);
-				if (useFlash && highlight.id) {
-					this.scrolledToHighlightIdRef = highlight.id;
-				}
+			// Remove scroll listener in case user auto-scrolls in succession.
+			viewerRef.container.removeEventListener('scroll', handleScroll);
+			if (useFlash && highlight.id) {
+				this.scrolledToHighlightIdRef = highlight.id;
+			}
 
 			const viewportHighlight = scaledToViewport(boundingRect, pageViewport, usePdfCoordinates);
 			const container = viewerRef.container;
@@ -765,7 +813,7 @@
 		//getTip: () => tip,
 
 		currentScale: 1,
-		currentScaleValue: 1,
+		currentScaleValue: 'auto',
 		setCurrentScaleValue: function (value: PdfScaleValue) {
 			handleScaleValue(normalizeZoomValue(value));
 			(this.setTip as TipStateUpdater)(null);
@@ -781,18 +829,14 @@
 		textSelectionDelay: 1500,
 		selectedTool: 'text_selection',
 		selectedColorIndex: 0,
-		colors: ['#facc15', '#4ade80', '#60a5fa', '#f472b6', '#fb923c'],
+		colors: canonicalHighlightPalette(),
 		scrolledTo_color: 'rgba(251, 191, 36, 0.7)', // Bright amber flash
 		highlightMixBlendMode: 'normal',
 
 		setTip: () => {},
 
 		pageLayout: { spreadMode: 0, scrollMode: 0 },
-		setPageLayout: (opts: {
-			spreadMode?: number;
-			scrollMode?: number;
-			pagesRotation?: number;
-		}) => {
+		setPageLayout: (opts: { spreadMode?: number; scrollMode?: number; pagesRotation?: number }) => {
 			if (!viewerRef) return;
 			if (opts.spreadMode !== undefined) viewerRef.spreadMode = opts.spreadMode;
 			if (opts.scrollMode !== undefined) viewerRef.scrollMode = opts.scrollMode;
@@ -846,8 +890,6 @@
 		}
 	) as TPdfHighlighterUtils;
 
-	//const colors: string[] = getContext('colors') || ['#fcf151', '#ff659f', '#83f18d', '#67dfff', '#b581fe'];
-
 	let derived_style = $derived.by(() => {
 		const cursor = pdfHighlighterUtils.selectedTool == 'hand' ? 'cursor: grab;' : '';
 		return `${cursor}${userStyle}`;
@@ -883,6 +925,8 @@
 		onContextMenu={onHighlightContextMenu}
 		onClick={onHighlightClick}
 		{pdfHighlighterUtils}
+		{adjustmentDraft}
+		{onUpdateAdjustmentDraft}
 	/>
 {/snippet}
 
@@ -898,7 +942,7 @@
 	onpointerup={handleMouseUp}
 	style={container_inline_style}
 	onselectstart={(event) => {
-		if (event.target instanceof Element && event.target.closest('.hl_tip_container')) return;
+		if (event.target instanceof Element && event.target.closest(TIP_CONTAINER_SELECTOR)) return;
 		//const container = containerNodeRef;
 		//const selection = getWindow(container).getSelection();
 		//selection.collapse(selection.focusNode, selection.focusOffset)
@@ -936,6 +980,14 @@
 			{prepareHighlightForAdd}
 			{saveHighlightComment}
 			{deleteHighlight}
+			{onExplainFigure}
+			{onConfirmReExplainFigure}
+			{onCancelReExplainFigure}
+			{onStartAdjustHighlight}
+			{onSaveAdjustedHighlight}
+			{onCancelAdjustHighlight}
+			{actionState}
+			{adjustmentDraft}
 			{highlightsStore}
 			{highlightPopup}
 			{editHighlightPopup}
@@ -956,7 +1008,7 @@
 			onMouseUp={() => {}}
 			onSelection={(viewportPosition, scaledPosition, _image) => {
 				const raw: CommentedHighlight = {
-					content: {},
+					content: _image ? { image: _image } : {},
 					type: 'area',
 					position: scaledPosition,
 					color_index: pdfHighlighterUtils.selectedColorIndex
@@ -1002,7 +1054,7 @@
 	}
 
 	:global(.PdfHighlighter--dark .PdfHighlighter__highlight-layer) {
-		filter: invert(var(--pdf-invert)) hue-rotate(180deg) brightness(0.95);
+		filter: none;
 	}
 
 	/*:global(.textLayer ::selection) {

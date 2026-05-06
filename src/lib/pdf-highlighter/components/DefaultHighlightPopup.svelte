@@ -1,31 +1,60 @@
 <script lang="ts">
 	import type { Highlight } from '../types';
-	import { ChevronDown, Check, LoaderCircle, SquarePen, Trash2, X } from '@lucide/svelte';
+	import type { HighlightPopupActionState } from '../types';
+	import { ChevronDown, Move, SquarePen, Sparkles } from '@lucide/svelte';
 	import DeleteAction from './DeleteAction.svelte';
 
 	let {
 		highlight,
 		setPinned,
-		onDeleteHighlight
+		onDeleteHighlight,
+		onExplainFigure,
+		onAdjustHighlight,
+		actionState
 	}: {
 		highlight: Highlight;
 		setPinned: (flag: boolean) => void;
 		onDeleteHighlight?: (highlight: Highlight) => Promise<void>;
+		onExplainFigure?: (highlight: Highlight) => Promise<void>;
+		onAdjustHighlight?: (highlight: Highlight) => void;
+		actionState?: HighlightPopupActionState;
 	} = $props();
 
 	const LONG_COMMENT = 120;
 	const comment = $derived(highlight.comment ?? '');
 	const isLongComment = $derived(comment.length > LONG_COMMENT);
+	const annotations = $derived(highlight.annotations ?? []);
+	const hasAiAnnotation = $derived(annotations.some((a) => a.source === 'ai'));
+	const canExplainFigure = $derived(highlight.type === 'area' && Boolean(onExplainFigure));
 	let commentExpanded = $state(false);
-	let isDeleting = $state(false);
+
+	function includesHighlight(value: Set<string> | string[] | undefined, id: string | undefined) {
+		if (!id) return false;
+		if (value instanceof Set) return value.has(id);
+		return Array.isArray(value) ? value.includes(id) : false;
+	}
+
+	const isDeleting = $derived(includesHighlight(actionState?.deletingHighlightIds, highlight.id));
+	const isExplaining = $derived(
+		includesHighlight(actionState?.explainingHighlightIds, highlight.id)
+	);
+	const isAdjusting = $derived(actionState?.adjustingHighlightId === highlight.id);
+	const isSavingAdjust = $derived(
+		includesHighlight(actionState?.savingAdjustedHighlightIds, highlight.id)
+	);
+	const isBusy = $derived(isDeleting || isExplaining || isSavingAdjust);
+	const actionError = $derived(
+		highlight.id ? actionState?.errorsByHighlightId?.[highlight.id] : undefined
+	);
+
 	async function handleDelete() {
 		if (!onDeleteHighlight) return;
-		isDeleting = true;
-		try {
-			await onDeleteHighlight(highlight);
-		} finally {
-			isDeleting = false;
-		}
+		await onDeleteHighlight(highlight);
+	}
+
+	async function handleExplainFigure() {
+		if (!onExplainFigure) return;
+		await onExplainFigure(highlight);
 	}
 </script>
 
@@ -34,7 +63,13 @@
 	aria-label="Highlight popup"
 	class="Highlight__popup"
 	class:has-comment={Boolean(comment)}
+	data-debug-type={highlight.type}
+	data-debug-has-handler={Boolean(onExplainFigure)}
 >
+	{#if actionError}
+		<div class="action-error" role="alert">{actionError}</div>
+	{/if}
+
 	{#if comment}
 		<div class="comment-row">
 			<div class="comment-text-wrapper">
@@ -47,7 +82,7 @@
 						class="expand-comment"
 						aria-expanded={commentExpanded}
 						aria-label={commentExpanded ? 'Collapse comment' : 'Expand comment'}
-						disabled={isDeleting}
+						disabled={isBusy}
 						onclick={(e) => {
 							e.stopPropagation();
 							commentExpanded = !commentExpanded;
@@ -63,7 +98,7 @@
 				type="button"
 				class="TipButton edit-icon-btn"
 				title="Edit comment"
-				disabled={isDeleting}
+				disabled={isBusy}
 				onclick={(e) => {
 					e.stopPropagation();
 					setPinned(true);
@@ -73,21 +108,78 @@
 			</button>
 		</div>
 
-		<div class="delete-row">
+		<div class="delete-row" class:area-actions={highlight.type === 'area'}>
 			<DeleteAction
-				bind:processing={isDeleting}
+				processing={isDeleting}
 				label="Delete Highlight"
-				disabled={!onDeleteHighlight}
+				disabled={!onDeleteHighlight || isExplaining || isSavingAdjust || isAdjusting}
 				onConfirm={handleDelete}
 			/>
+
+			{#if highlight.type === 'area'}
+				<div class="separator-v"></div>
+				<button
+					type="button"
+					class="TipButton hover-action"
+					title="Comment"
+					disabled={isBusy || isAdjusting}
+					onclick={(e) => {
+						e.stopPropagation();
+						setPinned(true);
+					}}
+				>
+					<SquarePen size={14} />
+					<span>Comment</span>
+				</button>
+
+				<div class="separator-v"></div>
+				<button
+					type="button"
+					class="TipButton hover-action"
+					title="Adjust area"
+					disabled={isBusy || isAdjusting || !onAdjustHighlight}
+					onclick={(e) => {
+						e.stopPropagation();
+						onAdjustHighlight?.(highlight);
+					}}
+				>
+					<Move size={14} />
+					<span>{isAdjusting ? 'Adjusting...' : 'Adjust'}</span>
+				</button>
+
+				{#if onExplainFigure}
+					<div class="separator-v"></div>
+					<button
+						type="button"
+						class="TipButton hover-action"
+						title={hasAiAnnotation ? 'Re-explain figure' : 'Explain figure'}
+						disabled={isDeleting || isExplaining || isSavingAdjust || isAdjusting}
+						onclick={(e) => {
+							e.stopPropagation();
+							handleExplainFigure();
+						}}
+					>
+						<Sparkles size={14} class={isExplaining ? 'animate-pulse text-primary' : ''} />
+						<span
+							>{isExplaining
+								? hasAiAnnotation
+									? 'Updating...'
+									: 'Explaining...'
+								: hasAiAnnotation
+									? 'Re-explain'
+									: 'Explain'}</span
+						>
+					</button>
+				{/if}
+			{/if}
 		</div>
 	{:else}
 		<div class="no-comment-row">
 			<DeleteAction
-				bind:processing={isDeleting}
+				processing={isDeleting}
 				label="Delete"
 				variant="action"
-				disabled={!onDeleteHighlight}
+				disabled={!onDeleteHighlight || isExplaining || isSavingAdjust || isAdjusting}
 				onConfirm={handleDelete}
 			/>
 
@@ -96,16 +188,58 @@
 			<button
 				type="button"
 				class="TipButton hover-action comment-trigger"
-				title="Add comment"
-				disabled={isDeleting}
+				title="Comment"
+				disabled={isBusy || isAdjusting}
 				onclick={(e) => {
 					e.stopPropagation();
 					setPinned(true);
 				}}
 			>
 				<SquarePen size={14} />
-				<span>Add comment</span>
+				<span>Comment</span>
 			</button>
+
+			{#if highlight.type === 'area'}
+				<div class="separator-v"></div>
+				<button
+					type="button"
+					class="TipButton hover-action"
+					title="Adjust area"
+					disabled={isBusy || isAdjusting || !onAdjustHighlight}
+					onclick={(e) => {
+						e.stopPropagation();
+						onAdjustHighlight?.(highlight);
+					}}
+				>
+					<Move size={14} />
+					<span>{isAdjusting ? 'Adjusting...' : 'Adjust'}</span>
+				</button>
+
+				{#if canExplainFigure}
+					<div class="separator-v"></div>
+					<button
+						type="button"
+						class="TipButton hover-action"
+						title={hasAiAnnotation ? 'Re-explain figure' : 'Explain figure'}
+						disabled={isDeleting || isExplaining || isSavingAdjust || isAdjusting}
+						onclick={(e) => {
+							e.stopPropagation();
+							handleExplainFigure();
+						}}
+					>
+						<Sparkles size={14} class={isExplaining ? 'animate-pulse text-primary' : ''} />
+						<span
+							>{isExplaining
+								? hasAiAnnotation
+									? 'Updating...'
+									: 'Explaining...'
+								: hasAiAnnotation
+									? 'Re-explain figure'
+									: 'Explain figure'}</span
+						>
+					</button>
+				{/if}
+			{/if}
 		</div>
 	{/if}
 </div>
@@ -232,6 +366,20 @@
 		display: flex;
 		align-items: center;
 		gap: 1px;
+	}
+
+	.area-actions {
+		flex-wrap: wrap;
+	}
+
+	.action-error {
+		max-width: 320px;
+		padding: 8px 10px;
+		border-bottom: 1px solid var(--border, #e2e8f0);
+		color: var(--destructive, #ef4444);
+		font-size: 12px;
+		line-height: 1.35;
+		text-align: left;
 	}
 
 	.hover-action {

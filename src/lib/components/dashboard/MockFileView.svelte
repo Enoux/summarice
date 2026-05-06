@@ -3,14 +3,14 @@
 	import DropZone from '$lib/components/dashboard/DropZone.svelte';
 	import DocumentList from '$lib/components/dashboard/DocumentList.svelte';
 	import UploadProgress from '$lib/components/dashboard/UploadProgress.svelte';
-	import { ingest, type IngestionProgress } from '$lib/ingestion';
+	import { upload, type UploadProgressData } from '$lib/features/document-upload/upload.client';
 	import { invalidate } from '$app/navigation';
 	import { Input } from '$lib/components/ui/input';
 
 	let { data } = $props();
 	const { profile, user, supabase, documents: initialDocuments } = $derived(data);
 
-	let ingestionProgress = $state<IngestionProgress | null>(null);
+	let uploadProgress = $state<UploadProgressData | null>(null);
 	let searchQuery = $state('');
 
 	const filteredDocuments = $derived(
@@ -24,8 +24,8 @@
 		if (!file) return;
 
 		try {
-			await ingest(file, (p) => {
-				ingestionProgress = p;
+			await upload(file, (p) => {
+				uploadProgress = p;
 			});
 			
 			// Refresh documents list
@@ -33,8 +33,8 @@
 			
 			// Clear progress after short delay if successful
 			setTimeout(() => {
-				if (ingestionProgress?.stage === 'ready') {
-					ingestionProgress = null;
+				if (uploadProgress?.stage === 'ready') {
+					uploadProgress = null;
 				}
 			}, 3000);
 		} catch (err) {
@@ -110,9 +110,9 @@
 	{/if}
 </div>
 
-{#if ingestionProgress}
+{#if uploadProgress}
 	<UploadProgress 
-		progress={ingestionProgress} 
-		onClear={() => ingestionProgress = null} 
+		progress={uploadProgress} 
+		onClear={() => uploadProgress = null} 
 	/>
 {/if}

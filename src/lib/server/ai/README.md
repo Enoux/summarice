@@ -1,16 +1,16 @@
-# `server/ai/`
+# 🧠 AI Provider Port (`src/lib/server/ai/`)
 
-The **AI Provider Port**. All model calls go through here — no direct `fetch()` to model APIs from other modules.
+This directory serves as the **AI Provider Port**. It is the centralized hub for all Large Language Model (LLM) communications. **No other module in the codebase should make direct `fetch()` calls to model APIs.**
 
-## What goes here
+## 🎯 Purpose & Contents
 
-- A thin port interface (`generate`, `embed`, `stream`) that hides provider-specific details.
-- Adapters for **Gemini 3 Flash** (text generation, structured output, streaming) and **OpenAI text-embedding-3-small** (embeddings).
-- Prompt templates and prompt builders, scoped per use-case (summary, figure interpretation, deep agent).
-- Stream normalization so the rest of the app sees a uniform chunk shape regardless of provider.
-- A telemetry wrapper that writes one row to `llm_calls` per model invocation.
+By funneling all AI interactions through this port, we ensure that our AI providers remain easily swappable, observable, and consistent.
 
-## Status
+- **Unified Interface:** Exposes a thin, provider-agnostic port interface (`generate`, `embed`, `vision`, `stream`) that hides the underlying implementation details of specific AI APIs.
+- **Provider Adapters:** Contains adapters for our current routing layer, **OpenRouter**, which bridges requests to **Gemini 3 Flash** (for text generation and multimodal vision) and **OpenAI** (for vector embeddings).
+- **Stream Normalization:** Ensures that streaming responses from different models are normalized into a uniform chunk shape before being sent to the client.
+- **Telemetry & Billing:** Automatically tracks tokens, latency, and cost for every model call, writing this data directly to the `llm_calls` table for observability.
 
-Currently providing the interface for AI interactions across the app.
+## 🚥 Status
 
+**🟢 Operational**. This provider port is actively powering core application features, including figure interpretation, summary generation, and other interactive AI components.

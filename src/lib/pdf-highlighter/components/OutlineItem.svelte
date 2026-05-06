@@ -1,49 +1,80 @@
 <script lang="ts">
 	import type { ProcessedOutlineItem } from '$lib/pdf-highlighter/types';
 	import Self from './OutlineItem.svelte';
+	import { ChevronDown, ChevronRight } from '@lucide/svelte';
+	import { cn } from '$lib/utils';
 
 	interface Props {
 		item: ProcessedOutlineItem;
 		currentPage: number;
+		activeId?: string | null;
 		onNavigate: (item: ProcessedOutlineItem) => void;
 		depth?: number;
 	}
 
-	let { item, currentPage, onNavigate, depth = 0 }: Props = $props();
+	let { item, currentPage, activeId = null, onNavigate, depth = 0 }: Props = $props();
 
 	let expanded = $state(true);
-	const isActive = $derived(item.pageNumber === currentPage);
+
+	// Check if this item is active or contains the active child
+	function isAncestorOf(parent: ProcessedOutlineItem, id: string): boolean {
+		if (parent.id === id) return true;
+		for (const child of parent.children) {
+			if (isAncestorOf(child, id)) return true;
+		}
+		return false;
+	}
+
+	const isActive = $derived(item.id === activeId);
+	const isAncestorActive = $derived(activeId ? isAncestorOf(item, activeId) : false);
 </script>
 
-<div class="outline-item" style:padding-left={`${depth * 12}px`}>
-	<button
-		type="button"
-		class="flex w-full items-start gap-1 rounded-md px-2 py-1.5 text-left text-[13px] leading-snug transition-colors hover:bg-[var(--lp-hover)]"
-		class:bg-[var(--lp-accent)]={isActive}
-		class:!text-white={isActive}
-		class:text-[var(--lp-text)]={!isActive}
+<div class="group/item flex flex-col">
+	<div
+		class={cn(
+			'relative flex w-full items-center gap-1.5 px-2 py-1.5 transition-all duration-200',
+			'cursor-pointer rounded-md text-left text-sm leading-snug',
+			isActive
+				? 'bg-accent/60 font-medium text-foreground'
+				: isAncestorActive
+					? 'bg-accent/20 text-foreground'
+					: 'text-muted-foreground hover:bg-accent/40 hover:text-accent-foreground'
+		)}
+		style:padding-left={`${depth * 12 + 24}px`}
+		data-page={item.pageNumber}
+		data-outline-id={item.id}
 		onclick={() => onNavigate(item)}
+		role="button"
+		tabindex="0"
+		onkeydown={(e) => e.key === 'Enter' && onNavigate(item)}
 	>
 		{#if item.children.length > 0}
-			<span
-				class="mt-0.5 shrink-0 text-[var(--lp-muted)]"
+			<button
+				type="button"
+				class="flex size-5 shrink-0 items-center justify-center rounded-sm transition-colors hover:bg-accent-foreground/10"
 				onclick={(e) => {
 					e.preventDefault();
 					e.stopPropagation();
 					expanded = !expanded;
 				}}
-				role="presentation"
+				aria-label={expanded ? 'Collapse' : 'Expand'}
 			>
-				{expanded ? '▼' : '▶'}
-			</span>
+				{#if expanded}
+					<ChevronDown class="size-3.5" />
+				{:else}
+					<ChevronRight class="size-3.5" />
+				{/if}
+			</button>
 		{:else}
-			<span class="w-3 shrink-0"></span>
+			<div class="size-5 shrink-0"></div>
 		{/if}
-		<span class:font-bold={item.bold} class:italic={item.italic}>{item.title}</span>
-	</button>
+		<span class={cn('truncate', item.bold && 'font-bold', item.italic && 'italic')}>
+			{item.title}
+		</span>
+	</div>
 	{#if expanded && item.children.length > 0}
 		{#each item.children as child (child.id)}
-			<Self item={child} {currentPage} {onNavigate} depth={depth + 1} />
+			<Self item={child} {currentPage} {activeId} {onNavigate} depth={depth + 1} />
 		{/each}
 	{/if}
 </div>

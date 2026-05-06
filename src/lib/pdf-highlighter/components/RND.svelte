@@ -57,6 +57,7 @@
 	let removeMouseMoveListener: (() => void) | null = null;
 
 	function onMouseDown(e: MouseEvent) {
+		if (!isDraggable) return;
 		if (isAllowTextSelection) return;
 		allowTextSelection.cancel();
 		e.stopPropagation();
@@ -67,6 +68,7 @@
 	}
 
 	function resizer_onMouseDown(e: MouseEvent, d: string) {
+		if (!isDraggable) return;
 		removeMouseUpListener = on(document, 'mouseup', onMouseUp);
 		removeMouseMoveListener = on(document, 'mousemove', onMouseMove);
 		resizing = true;
@@ -172,12 +174,16 @@
 		}
 	}}
 >
-	<div class={isAllowTextSelection ? 'resizers allowSelect' : 'resizers'}>
+	<div
+		class={isAllowTextSelection ? 'resizers allowSelect' : 'resizers'}
+		aria-hidden={!isDraggable}
+	>
 		<div
 			role="button"
-			tabindex="0"
+			tabindex={isDraggable ? 0 : -1}
 			aria-label="Resize highlight from top-left"
 			onmousedown={(e) => {
+				if (!isDraggable) return;
 				e.stopPropagation();
 				e.preventDefault();
 				resizer_onMouseDown(e, 'nw');
@@ -186,9 +192,10 @@
 		></div>
 		<div
 			role="button"
-			tabindex="0"
+			tabindex={isDraggable ? 0 : -1}
 			aria-label="Resize highlight from top-right"
 			onmousedown={(e) => {
+				if (!isDraggable) return;
 				e.stopPropagation();
 				e.preventDefault();
 				resizer_onMouseDown(e, 'ne');
@@ -197,9 +204,10 @@
 		></div>
 		<div
 			role="button"
-			tabindex="0"
+			tabindex={isDraggable ? 0 : -1}
 			aria-label="Resize highlight from bottom-left"
 			onmousedown={(e) => {
+				if (!isDraggable) return;
 				e.stopPropagation();
 				e.preventDefault();
 				resizer_onMouseDown(e, 'sw');
@@ -208,9 +216,10 @@
 		></div>
 		<div
 			role="button"
-			tabindex="0"
+			tabindex={isDraggable ? 0 : -1}
 			aria-label="Resize highlight from bottom-right"
 			onmousedown={(e) => {
+				if (!isDraggable) return;
 				e.stopPropagation();
 				e.preventDefault();
 				resizer_onMouseDown(e, 'se');
@@ -257,7 +266,7 @@
 		border: none;
 		position: absolute;
 	}
-	.resizable:hover .resizers .resizer {
+	.draggable:hover .resizers .resizer {
 		border: 1px solid #000;
 		background: #fff;
 	}

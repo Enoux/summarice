@@ -1,5 +1,5 @@
 import type { Scaled, ScaledPosition } from '$lib/pdf-highlighter/types';
-import type { StoredPageLayout } from '$lib/server/ingestion/liteparse-pages';
+import type { StoredPageLayout } from '$lib/server/document-upload/liteparse-pages';
 
 export type HighlightTextStatus = 'provisional' | 'refined' | 'fallback';
 

@@ -75,8 +75,10 @@
 	"dependencies": {
 		"@internationalized/date": "^3.12.1",
 		"@llamaindex/liteparse": "^1.5.3",
+		"@openrouter/ai-sdk-provider": "^2.9.0",
 		"@supabase/ssr": "^0.10.2",
 		"@supabase/supabase-js": "^2.105.0",
+		"ai": "^6.0.174",
 		"bits-ui": "^2.18.0",
 		"mode-watcher": "^1.1.0",
 		"pdf-lib": "^1.17.1",

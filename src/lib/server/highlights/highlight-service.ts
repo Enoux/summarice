@@ -1,15 +1,17 @@
+import { randomUUID } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import {
-	commentedHighlightToCreatePayload,
-	type HighlightRow,
-	rowToCommentedHighlight
-} from '$lib/domain/highlight-mapper';
-import type { CommentedHighlight, Highlight } from '$lib/pdf-highlighter/types';
+import type { Annotation, CommentedHighlight, Highlight, ScaledPosition } from '$lib/pdf-highlighter/types';
+import { type CategorySlotId } from '$lib/highlights/color-slots';
 import {
 	refineHighlightText,
 	type HighlightTextStatus
 } from '$lib/server/highlights/highlight-text-refiner';
-import type { StoredPageLayout } from '$lib/server/ingestion/liteparse-pages';
+import {
+	createHighlightScreenshotSignedUrl,
+	removeHighlightScreenshot,
+	uploadHighlightScreenshot
+} from '$lib/server/highlights/screenshot-storage';
+import type { StoredPageLayout } from '$lib/server/document-upload/liteparse-pages';
 
 type SupabaseErrorLike = {
 	code?: string;
@@ -54,6 +56,88 @@ export async function fetchUserSettings(supabase: SupabaseClient, userId: string
 	return data;
 }
 
+// ─── Mapper & Types ───────────────────────────────────────────────────────────
+
+export type HighlightRow = {
+	id: string;
+	document_id: string;
+	owner_id: string;
+	ordinal: number;
+	kind: 'text' | 'area';
+	page_number: number;
+	text: string | null;
+	comment: string | null;
+	screenshot_path: string | null;
+	bounding_box: ScaledPosition;
+	category: number | null;
+	color: string;
+	created_at: string;
+	annotations?: Annotation[];
+};
+
+export function rowToCommentedHighlight(
+	row: HighlightRow,
+	opts: { screenshotUrl?: string | null } = {}
+): CommentedHighlight {
+	const category = row.category as CategorySlotId | null;
+	const colorIndex = category != null && category >= 1 && category <= 5 ? category - 1 : 0;
+
+	return {
+		id: row.id,
+		type: row.kind,
+		position: row.bounding_box,
+		content:
+			row.kind === 'text'
+				? { text: row.text ?? '' }
+				: row.kind === 'area'
+					? opts.screenshotUrl
+						? { image: opts.screenshotUrl }
+						: {}
+					: {},
+		comment: row.comment ?? undefined,
+		color_index: colorIndex,
+		category_slot: category === null ? null : category,
+		ordinal: row.ordinal,
+		display_color: row.color,
+		annotations: row.annotations
+	};
+}
+
+export function commentedHighlightToCreatePayload(
+	h: CommentedHighlight,
+	opts: {
+		documentId: string;
+		/** When false, category comes from color_index + 1 */
+		decorative: boolean;
+		/** Explicit hex for DB `color` column */
+		colorHex: string;
+		screenshotPath?: string | null;
+	}
+) {
+	const kind = h.type ?? 'text';
+	const pageNumber = h.position?.boundingRect.pageNumber ?? 1;
+	const text = kind === 'text' ? (h.content?.text ?? '') : null;
+	const bounding = h.position as ScaledPosition;
+	if (!bounding?.boundingRect) {
+		throw new Error('Missing bounding box');
+	}
+	const slot = Math.min(Math.max((h.color_index ?? 0) + 1, 1), 5);
+	const category: number | null = opts.decorative ? null : slot;
+
+	return {
+		p_document_id: opts.documentId,
+		p_kind: kind,
+		p_page_number: pageNumber,
+		p_text: text,
+		p_bounding_box: bounding,
+		p_category: category,
+		p_color: opts.colorHex,
+		p_comment: h.comment ?? null,
+		p_screenshot_path: opts.screenshotPath ?? null,
+		p_id: h.id ?? null
+	};
+}
+
 // ─── Highlights ───────────────────────────────────────────────────────────────
 
 export async function fetchHighlightsForDocument(
@@ -76,12 +160,14 @@ export async function createHighlightRpc(
 		documentId: string;
 		decorative: boolean;
 		colorHex: string;
+		screenshotPath?: string | null;
 	}
 ) {
 	const payload = commentedHighlightToCreatePayload(h as CommentedHighlight, {
 		documentId: opts.documentId,
 		decorative: opts.decorative,
-		colorHex: opts.colorHex
+		colorHex: opts.colorHex,
+		screenshotPath: opts.screenshotPath
 	});
 	const { data, error } = await supabase.rpc('create_highlight', payload);
 	if (error) throw error;
@@ -126,6 +212,7 @@ export async function createHighlightWithResolvedText(
 	highlight: CommentedHighlight,
 	opts: {
 		documentId: string;
+		userId: string;
 		decorative: boolean;
 		colorHex: string;
 	}
@@ -135,22 +222,52 @@ export async function createHighlightWithResolvedText(
 		text_status: 'fallback' as const
 	}));
 
-	const created = await createHighlightRpc(
-		supabase,
-		{
-			...highlight,
-			content: {
-				...highlight.content,
-				text: resolution.text
-			}
-		},
-		opts
-	);
+	const highlightId = highlight.id ?? randomUUID();
+	const screenshot =
+		highlight.type === 'area'
+			? await uploadHighlightScreenshot(supabase, {
+					userId: opts.userId,
+					documentId: opts.documentId,
+					highlightId,
+					imageDataUrl: highlight.content?.image
+				})
+			: null;
+
+	let created: CommentedHighlight;
+	try {
+		created = await createHighlightRpc(
+			supabase,
+			{
+				...highlight,
+				id: highlight.id ?? (screenshot ? highlightId : undefined),
+				content: {
+					...highlight.content,
+					text: resolution.text
+				}
+			},
+			{ ...opts, screenshotPath: screenshot?.path ?? null }
+		);
+	} catch (error) {
+		await removeHighlightScreenshot(supabase, screenshot?.path ?? null);
+		throw error;
+	}
 
 	return {
 		...created,
+		content:
+			created.type === 'area' && screenshot?.signedUrl
+				? { ...created.content, image: screenshot.signedUrl }
+				: created.content,
 		text_status: resolution.text_status
 	};
+}
+
+export async function rowToCommentedHighlightWithScreenshot(
+	supabase: SupabaseClient,
+	row: HighlightRow
+) {
+	const screenshotUrl = await createHighlightScreenshotSignedUrl(supabase, row.screenshot_path);
+	return rowToCommentedHighlight(row, { screenshotUrl });
 }
 
 export async function updateHighlight(
@@ -172,6 +289,64 @@ export async function updateHighlight(
 	if (error) throw error;
 }
 
+export async function updateAreaHighlightScreenshot(
+	supabase: SupabaseClient,
+	opts: {
+		id: string;
+		documentId: string;
+		userId: string;
+		position: ScaledPosition;
+		imageDataUrl: string;
+	}
+) {
+	const { data: existing, error: readError } = await supabase
+		.from('highlights')
+		.select('*')
+		.eq('id', opts.id)
+		.eq('document_id', opts.documentId)
+		.eq('owner_id', opts.userId)
+		.eq('kind', 'area')
+		.single();
+	if (readError || !existing) throw readError ?? new Error('Area highlight not found');
+
+	const previousScreenshotPath = (existing as HighlightRow).screenshot_path;
+	const nextPath = `${opts.userId}/${opts.documentId}/${opts.id}-${Date.now()}.png`;
+	const uploaded = await uploadHighlightScreenshot(supabase, {
+		userId: opts.userId,
+		documentId: opts.documentId,
+		highlightId: opts.id,
+		imageDataUrl: opts.imageDataUrl,
+		path: nextPath
+	});
+	if (!uploaded) throw new Error('Invalid PNG screenshot');
+
+	let updated: HighlightRow;
+	try {
+		const { data, error } = await supabase
+			.from('highlights')
+			.update({
+				bounding_box: opts.position,
+				page_number: opts.position.boundingRect.pageNumber,
+				screenshot_path: uploaded.path
+			})
+			.eq('id', opts.id)
+			.eq('document_id', opts.documentId)
+			.eq('owner_id', opts.userId)
+			.eq('kind', 'area')
+			.select('*, annotations(*)')
+			.single();
+		if (error || !data) throw error ?? new Error('Area highlight update failed');
+		updated = data as HighlightRow;
+	} catch (error) {
+		await removeHighlightScreenshot(supabase, uploaded.path);
+		throw error;
+	}
+
+	await removeHighlightScreenshot(supabase, previousScreenshotPath);
+	const screenshotUrl = await createHighlightScreenshotSignedUrl(supabase, updated.screenshot_path);
+	return rowToCommentedHighlight(updated, { screenshotUrl });
+}
+
 export async function deleteHighlightById(supabase: SupabaseClient, highlightId: string) {
 	const { error } = await supabase.from('highlights').delete().eq('id', highlightId);
 	if (error) throw error;
@@ -183,11 +358,7 @@ export async function createAnnotation(
 	supabase: SupabaseClient,
 	opts: { highlight_id: string; owner_id: string; body: string; source: 'human' | 'ai' }
 ) {
-	const { data, error } = await supabase
-		.from('annotations')
-		.insert(opts)
-		.select()
-		.single();
+	const { data, error } = await supabase.from('annotations').insert(opts).select().single();
 	if (error) throw error;
 	return data;
 }

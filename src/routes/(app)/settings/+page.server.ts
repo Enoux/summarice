@@ -1,7 +1,7 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { ensureUserSettingsRow } from '$lib/server/highlights/highlight-service';
-import { DEFAULT_CATEGORY_LABELS } from '$lib/domain/highlight-categories';
+import { DEFAULT_CATEGORY_LABELS } from '$lib/highlights/color-slots';
 
 export const load: PageServerLoad = async ({ locals: { supabase, user } }) => {
 	if (!user) {

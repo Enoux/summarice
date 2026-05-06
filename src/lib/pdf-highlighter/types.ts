@@ -198,7 +198,11 @@ export type HighlightBindings = {
  */
 export type Tip = {
 	position: ViewportPosition;
-	content: { highlight?: { id?: string; [key: string]: unknown }; id?: string; [key: string]: unknown };
+	content: {
+		highlight?: { id?: string; [key: string]: unknown };
+		id?: string;
+		[key: string]: unknown;
+	};
 };
 
 /**
@@ -277,6 +281,7 @@ export type PdfHighlighterUtils = {
 	isSelectionInProgress(): boolean;
 
 	scrollToHighlight(highlight: Highlight, useFlash?: boolean): void;
+	pulseHighlight(id: string): void;
 	scrolledToHighlightIdRef?: string | null;
 
 	currentScale: number; //Represents scale as a number
@@ -329,4 +334,21 @@ export type TipContainerState = {
 		clientX: number;
 		clientY: number;
 	};
+};
+
+export type HighlightPopupActionState = {
+	explainingHighlightIds?: Set<string> | string[];
+	deletingHighlightIds?: Set<string> | string[];
+	adjustingHighlightId?: string | null;
+	pendingReExplainHighlightId?: string | null;
+	savingAdjustedHighlightIds?: Set<string> | string[];
+	errorsByHighlightId?: Record<string, string | undefined>;
+};
+
+export type HighlightAdjustmentDraft = {
+	highlightId: string;
+	originalPosition: ScaledPosition;
+	originalImage?: string;
+	position: ScaledPosition;
+	image?: string;
 };

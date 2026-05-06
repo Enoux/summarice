@@ -3,7 +3,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Separator } from '$lib/components/ui/separator';
-	import { DEFAULT_CATEGORY_LABELS } from '$lib/domain/highlight-categories';
+	import { DEFAULT_CATEGORY_LABELS } from '$lib/highlights/color-slots';
 
 	const { data, form } = $props();
 	const settings = $derived(data.settings);

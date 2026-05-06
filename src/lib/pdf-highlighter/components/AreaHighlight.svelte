@@ -61,6 +61,7 @@
 	import { debounce } from '$lib/pdf-highlighter/utils';
 	import RND from '$lib/pdf-highlighter/components/RND.svelte';
 	import type { LTWH } from '$lib/pdf-highlighter/types';
+	import { resolveHighlightColor } from '$lib/highlights/color-slots';
 
 	/**
 	 * The props type for {@link AreaHighlight}.
@@ -85,8 +86,11 @@
 		isDraggable = false
 	}: AreaHighlightProps = $props();
 
+	const currentThemeMode = $derived(pdfHighlighterUtils.viewerTheme?.mode ?? 'light');
 	const color = $derived.by(() => {
-		if (highlight.display_color) return highlight.display_color;
+		if (highlight.display_color) {
+			return resolveHighlightColor(highlight.display_color, currentThemeMode);
+		}
 		if (highlight.color_index !== undefined && highlight.color_index !== null) {
 			return pdfHighlighterUtils.colors?.[highlight.color_index] ?? 'lightgrey';
 		}
@@ -117,6 +121,7 @@
 	style="mix-blend-mode: {highlightMixBlendMode}"
 	class={isAllowTextSelection ? 'AreaHighlight allowSelect' : 'AreaHighlight'}
 	class:is-active={pdfHighlighterUtils.hoveredHighlightId === highlight.id}
+	class:is-adjusting={isDraggable}
 	class:is-dimmed={pdfHighlighterUtils.hoveredHighlightId &&
 		pdfHighlighterUtils.hoveredHighlightId !== highlight.id}
 	onmouseenter={() => {
@@ -176,6 +181,13 @@
 
 	.AreaHighlight.is-active {
 		filter: contrast(1.1) brightness(1.1);
+	}
+
+	.AreaHighlight.is-adjusting {
+		outline: 2px solid var(--primary, #2563eb);
+		outline-offset: 3px;
+		border-radius: 4px;
+		filter: contrast(1.15) brightness(1.08);
 	}
 
 	.AreaHighlight.is-dimmed {
