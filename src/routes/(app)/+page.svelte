@@ -9,5 +9,5 @@
 {#if PUBLIC_MOCK_COMPONENTS === 'true'}
 	<MockFileView {data} />
 {:else}
-	<FileView />
+	<FileView {data} />
 {/if}

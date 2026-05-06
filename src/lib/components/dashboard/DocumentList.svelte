@@ -19,20 +19,7 @@
 
 <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
 	{#each documents as doc (doc.id)}
-		<div class="group relative flex flex-col rounded-xl border bg-card p-5 transition-all hover:border-primary/50 hover:shadow-md">
-			<div class="mb-4 flex items-start justify-between">
-				<div class="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-					<FileText class="h-5 w-5" />
-				</div>
-				<button 
-					onclick={() => onDelete(doc.id)}
-					class="rounded-md p-2 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
-					title="Delete document"
-				>
-					<Trash2 class="h-4 w-4" />
-				</button>
-			</div>
-			
+		<div class="group relative flex flex-col rounded-xl border bg-card p-5 transition-all hover:border-primary/50 hover:shadow-md">			
 			<div class="flex-1 space-y-1">
 				<h3 class="line-clamp-1 font-semibold leading-tight" title={doc.title}>
 					{doc.title}
@@ -57,6 +44,14 @@
 				class="absolute inset-0 z-0"
 				aria-label={`View ${doc.title}`}
 			></a>
+
+			<button 
+				onclick={() => onDelete(doc.id)}
+				class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity rounded-md p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+				title="Delete document"
+			>
+				<Trash2 class="h-4 w-4" />
+			</button>
 		</div>
 	{/each}
 </div>
