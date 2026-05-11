@@ -3,18 +3,24 @@
 	import DropZone from '$lib/components/dashboard/DropZone.svelte';
 	import DocumentList from '$lib/components/dashboard/DocumentList.svelte';
 	import UploadProgress from '$lib/components/dashboard/UploadProgress.svelte';
-	import { upload, type UploadProgressData } from '$lib/features/document-upload/upload.client';
+	import type { LibraryDocument } from '$lib/types/library-document';
+	import {
+		upload,
+		deleteDocument,
+		type UploadProgressData
+	} from '$lib/features/document-upload/upload.client';
 	import { invalidate } from '$app/navigation';
 	import { Input } from '$lib/components/ui/input';
 
 	let { data } = $props();
-	const { profile, user, supabase, documents: initialDocuments } = $derived(data);
+	const { profile, user } = $derived(data);
+	const initialDocuments = $derived(data.documents as LibraryDocument[]);
 
 	let uploadProgress = $state<UploadProgressData | null>(null);
 	let searchQuery = $state('');
 
 	const filteredDocuments = $derived(
-		initialDocuments.filter((doc: any) => 
+		initialDocuments.filter((doc) =>
 			doc.title.toLowerCase().includes(searchQuery.toLowerCase())
 		)
 	);
@@ -44,14 +50,16 @@
 
 	async function handleDelete(id: string) {
 		if (!confirm('Are you sure you want to delete this document?')) return;
-		
-		const { error } = await supabase
-			.from('documents')
-			.delete()
-			.eq('id', id);
-			
-		if (!error) {
+
+		try {
+			const result = await deleteDocument(id);
+			if (result.warnings?.length) {
+				console.warn('[delete document] Storage cleanup warnings:', result.warnings);
+			}
 			await invalidate('supabase:auth');
+		} catch (err) {
+			console.error('Delete failed:', err);
+			alert(err instanceof Error ? err.message : 'Failed to delete document');
 		}
 	}
 </script>

@@ -2,9 +2,10 @@
 	import { FileText, ChevronRight, Clock, Trash2 } from '@lucide/svelte';
 	import { cn } from '$lib/utils';
 	import { Button } from '$lib/components/ui/button';
+	import type { LibraryDocument } from '$lib/types/library-document';
 
 	let { documents, onDelete } = $props<{
-		documents: any[];
+		documents: LibraryDocument[];
 		onDelete: (id: string) => void;
 	}>();
 

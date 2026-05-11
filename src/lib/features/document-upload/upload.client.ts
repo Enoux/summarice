@@ -40,3 +40,35 @@ export async function upload(file: File, onProgress?: (progress: UploadProgressD
 		throw error;
 	}
 }
+
+export type DeleteDocumentResult = { ok: true; warnings?: string[] };
+
+/** Deletes the document and cascaded data server-side; cleans PDF and highlight screenshots from Storage. */
+export async function deleteDocument(documentId: string): Promise<DeleteDocumentResult> {
+	const response = await fetch(`/documents/${encodeURIComponent(documentId)}`, {
+		method: 'DELETE'
+	});
+	const payload: unknown = await response.json().catch(() => null);
+
+	if (!response.ok) {
+		const msg =
+			payload &&
+			typeof payload === 'object' &&
+			'message' in payload &&
+			typeof (payload as { message: unknown }).message === 'string'
+				? (payload as { message: string }).message
+				: `Failed to delete document (${response.status})`;
+		throw new Error(msg);
+	}
+
+	if (
+		!payload ||
+		typeof payload !== 'object' ||
+		!('ok' in payload) ||
+		(payload as { ok: unknown }).ok !== true
+	) {
+		throw new Error('Invalid delete response');
+	}
+
+	return payload as DeleteDocumentResult;
+}
