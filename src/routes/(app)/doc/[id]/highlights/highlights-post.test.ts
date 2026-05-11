@@ -4,11 +4,20 @@ const refineHighlightTextForDocument = vi.fn();
 const createHighlightWithResolvedText = vi.fn();
 const updateHighlight = vi.fn();
 const updateAreaHighlightScreenshot = vi.fn();
+const configuredEmbeddingModel = vi.fn();
+const markEmbeddingPending = vi.fn();
+const triggerEmbeddingProcessing = vi.fn();
 
 vi.mock('$lib/server/highlights/highlight-service', () => ({
 	createHighlightWithResolvedText,
 	updateAreaHighlightScreenshot,
 	updateHighlight
+}));
+
+vi.mock('$lib/server/embeddings/highlight-embedding-service', () => ({
+	configuredEmbeddingModel,
+	markEmbeddingPending,
+	triggerEmbeddingProcessing
 }));
 
 describe('POST /doc/[id]/highlights', () => {
@@ -17,6 +26,11 @@ describe('POST /doc/[id]/highlights', () => {
 		createHighlightWithResolvedText.mockReset();
 		updateHighlight.mockReset();
 		updateAreaHighlightScreenshot.mockReset();
+		configuredEmbeddingModel.mockReset();
+		markEmbeddingPending.mockReset();
+		triggerEmbeddingProcessing.mockReset();
+		configuredEmbeddingModel.mockReturnValue('env/embedding-model');
+		markEmbeddingPending.mockResolvedValue({});
 	});
 
 	it('returns the persisted highlight with refined text when layout data is available', async () => {
@@ -71,6 +85,16 @@ describe('POST /doc/[id]/highlights', () => {
 		} as never);
 
 		expect(createHighlightWithResolvedText).toHaveBeenCalledOnce();
+		expect(markEmbeddingPending).toHaveBeenCalledWith(
+			{},
+			{
+				highlightId: '11111111-1111-4111-8111-111111111111',
+				model: 'env/embedding-model'
+			}
+		);
+		expect(triggerEmbeddingProcessing).toHaveBeenCalledWith(undefined, {
+			documentId: '22222222-2222-4222-8222-222222222222'
+		});
 		expect(createHighlightWithResolvedText).toHaveBeenCalledWith(
 			{},
 			expect.objectContaining({
@@ -143,6 +167,13 @@ describe('POST /doc/[id]/highlights', () => {
 		} as never);
 
 		expect(response.status).toBe(200);
+		expect(markEmbeddingPending).toHaveBeenCalledWith(
+			{},
+			{
+				highlightId: '44444444-4444-4444-8444-444444444444',
+				model: 'env/embedding-model'
+			}
+		);
 		expect(createHighlightWithResolvedText).toHaveBeenCalledWith(
 			{},
 			expect.objectContaining({
@@ -216,6 +247,13 @@ describe('POST /doc/[id]/highlights', () => {
 			content: { text: 'Selected text' },
 			text_status: 'fallback'
 		});
+		expect(markEmbeddingPending).toHaveBeenCalledWith(
+			{},
+			{
+				highlightId: '33333333-3333-4333-8333-333333333333',
+				model: 'env/embedding-model'
+			}
+		);
 	});
 });
 
@@ -244,6 +282,13 @@ describe('PATCH /doc/[id]/highlights comments', () => {
 			'22222222-2222-4222-8222-222222222222',
 			{ comment: '' }
 		);
+		expect(markEmbeddingPending).toHaveBeenCalledWith(
+			{},
+			{
+				highlightId: '11111111-1111-4111-8111-111111111111',
+				model: 'env/embedding-model'
+			}
+		);
 	});
 
 	it('trims valid comment updates before persistence', async () => {
@@ -269,6 +314,13 @@ describe('PATCH /doc/[id]/highlights comments', () => {
 			'11111111-1111-4111-8111-111111111111',
 			'22222222-2222-4222-8222-222222222222',
 			{ comment: 'Saved' }
+		);
+		expect(markEmbeddingPending).toHaveBeenCalledWith(
+			{},
+			{
+				highlightId: '11111111-1111-4111-8111-111111111111',
+				model: 'env/embedding-model'
+			}
 		);
 	});
 });
@@ -321,6 +373,13 @@ describe('PATCH /doc/[id]/highlights area adjustment', () => {
 		} as never);
 
 		expect(response.status).toBe(200);
+		expect(markEmbeddingPending).toHaveBeenCalledWith(
+			{},
+			{
+				highlightId: '11111111-1111-4111-8111-111111111111',
+				model: 'env/embedding-model'
+			}
+		);
 		expect(updateAreaHighlightScreenshot).toHaveBeenCalledWith(
 			{},
 			expect.objectContaining({

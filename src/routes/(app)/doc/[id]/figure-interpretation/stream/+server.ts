@@ -1,6 +1,11 @@
 import { error } from '@sveltejs/kit';
 import { getLLMProvider } from '$lib/server/ai';
 import type { LLMUsage } from '$lib/server/ai/types';
+import {
+	configuredEmbeddingModel,
+	markEmbeddingPending,
+	processDefaultPendingEmbeddings
+} from '$lib/server/embeddings/highlight-embedding-service';
 import { env } from '$lib/server/env';
 import {
 	buildFigureInterpretationPrompt,
@@ -85,6 +90,20 @@ export const GET: RequestHandler = async ({ locals: { supabase, user }, params, 
 					costUsd: telemetry?.costUsd,
 					providerMetadata: telemetry?.providerMetadata,
 					status: 'completed'
+				});
+				await markEmbeddingPending(supabase, {
+					highlightId: prompt.highlightId,
+					model: configuredEmbeddingModel()
+				});
+				void processDefaultPendingEmbeddings(supabase, {
+					ownerId: user.id,
+					documentId: params.id
+				}).catch((error) => {
+					console.warn('[figure-interpretation embedding trigger]', {
+						documentId: params.id,
+						highlightId: prompt.highlightId,
+						error: error instanceof Error ? error.message : String(error)
+					});
 				});
 
 				send('done', { annotation });

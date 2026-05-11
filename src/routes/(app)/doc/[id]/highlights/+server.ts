@@ -3,11 +3,17 @@ import { z } from 'zod';
 import type { RequestHandler } from './$types';
 import type { CommentedHighlight } from '$lib/pdf-highlighter/types';
 import {
+	configuredEmbeddingModel,
+	markEmbeddingPending,
+	triggerEmbeddingProcessing
+} from '$lib/server/embeddings/highlight-embedding-service';
+import {
 	createHighlightWithResolvedText,
 	deleteHighlightById,
 	updateAreaHighlightScreenshot,
 	updateHighlight
 } from '$lib/server/highlights/highlight-service';
+import { isAppNotFoundError } from '$lib/server/app-errors';
 
 const ScaledSchema = z.object({
 	x1: z.number(),
@@ -55,7 +61,7 @@ const PatchHighlightSchema = z.object({
 	message: 'Area adjustment requires position and content.image'
 });
 
-export const POST: RequestHandler = async ({ locals, params, request }) => {
+export const POST: RequestHandler = async ({ fetch, locals, params, request }) => {
 	if (!locals.user) error(401, 'Unauthorized');
 
 	const parsed = CreateHighlightSchema.safeParse(await request.json().catch(() => null));
@@ -70,6 +76,13 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
 			decorative,
 			colorHex
 		});
+		if (created.id) {
+			await markEmbeddingPending(locals.supabase, {
+				highlightId: created.id,
+				model: configuredEmbeddingModel()
+			});
+			triggerEmbeddingProcessing(fetch, { documentId: params.id });
+		}
 		return json(created);
 	} catch (e) {
 		console.error('[highlights POST]', e);
@@ -77,7 +90,7 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
 	}
 };
 
-export const PATCH: RequestHandler = async ({ locals, params, request }) => {
+export const PATCH: RequestHandler = async ({ fetch, locals, params, request }) => {
 	if (!locals.user) error(401, 'Unauthorized');
 
 	const parsed = PatchHighlightSchema.safeParse(await request.json().catch(() => null));
@@ -95,9 +108,21 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 				position: patch.position,
 				imageDataUrl: patch.content.image
 			});
+			await markEmbeddingPending(locals.supabase, {
+				highlightId: id,
+				model: configuredEmbeddingModel()
+			});
+			triggerEmbeddingProcessing(fetch, { documentId: params.id });
 			return json({ ok: true, highlight });
 		}
 		await updateHighlight(locals.supabase, id, params.id, patch);
+		if (patch.comment !== undefined) {
+			await markEmbeddingPending(locals.supabase, {
+				highlightId: id,
+				model: configuredEmbeddingModel()
+			});
+			triggerEmbeddingProcessing(fetch, { documentId: params.id });
+		}
 		return json({ ok: true });
 	} catch (e) {
 		console.error('[highlights PATCH]', e);
@@ -105,16 +130,21 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 	}
 };
 
-export const DELETE: RequestHandler = async ({ locals, url }) => {
+export const DELETE: RequestHandler = async ({ locals, params, url }) => {
 	if (!locals.user) error(401, 'Unauthorized');
 
 	const id = url.searchParams.get('id');
 	if (!id) error(400, 'Missing id');
 
 	try {
-		await deleteHighlightById(locals.supabase, id);
+		await deleteHighlightById(locals.supabase, {
+			highlightId: id,
+			documentId: params.id,
+			userId: locals.user.id
+		});
 		return json({ ok: true });
 	} catch (e) {
+		if (isAppNotFoundError(e)) error(404, e.message);
 		console.error('[highlights DELETE]', e);
 		error(500, 'Failed to delete highlight');
 	}
