@@ -36,7 +36,6 @@ export type OpenRouterLLMProviderOptions = {
 
 const DEFAULT_MODEL = 'google/gemini-2.5-flash';
 const DEFAULT_VISION_MODEL = 'google/gemini-2.5-flash';
-const DEFAULT_EMBEDDING_MODEL = 'openai/text-embedding-3-small';
 
 export function createOpenRouterLLMProvider(options: OpenRouterLLMProviderOptions): LLMProvider {
 	const openrouter = createOpenRouter({
@@ -64,7 +63,11 @@ export function createOpenRouterLLMProvider(options: OpenRouterLLMProviderOption
 	}
 
 	function embeddingModel(model?: string) {
-		return model ?? options.embeddingModel ?? DEFAULT_EMBEDDING_MODEL;
+		const modelId = model ?? options.embeddingModel;
+		if (!modelId) {
+			throw new Error('OPENROUTER_EMBEDDING_MODEL is required to create embedding requests');
+		}
+		return modelId;
 	}
 
 	function combineSignals(callerSignal: AbortSignal | undefined): AbortSignal {
