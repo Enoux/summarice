@@ -11,6 +11,7 @@ import {
 	removeHighlightScreenshot,
 	uploadHighlightScreenshot
 } from '$lib/server/highlights/screenshot-storage';
+import { AppNotFoundError } from '$lib/server/app-errors';
 import type { StoredPageLayout } from '$lib/server/document-upload/liteparse-pages';
 
 type SupabaseErrorLike = {
@@ -347,9 +348,36 @@ export async function updateAreaHighlightScreenshot(
 	return rowToCommentedHighlight(updated, { screenshotUrl });
 }
 
-export async function deleteHighlightById(supabase: SupabaseClient, highlightId: string) {
-	const { error } = await supabase.from('highlights').delete().eq('id', highlightId);
+export async function deleteHighlightById(
+	supabase: SupabaseClient,
+	opts: { highlightId: string; documentId: string; userId: string }
+) {
+	const { data: existing, error: readErr } = await supabase
+		.from('highlights')
+		.select('screenshot_path')
+		.eq('id', opts.highlightId)
+		.eq('document_id', opts.documentId)
+		.eq('owner_id', opts.userId)
+		.maybeSingle();
+
+	if (readErr) throw readErr;
+	if (!existing) throw new AppNotFoundError('Highlight not found');
+
+	const screenshotPath =
+		typeof existing.screenshot_path === 'string' && existing.screenshot_path.trim().length > 0
+			? existing.screenshot_path
+			: null;
+
+	const { error } = await supabase
+		.from('highlights')
+		.delete()
+		.eq('id', opts.highlightId)
+		.eq('document_id', opts.documentId)
+		.eq('owner_id', opts.userId);
+
 	if (error) throw error;
+
+	await removeHighlightScreenshot(supabase, screenshotPath);
 }
 
 // ─── Annotations ──────────────────────────────────────────────────────────────
@@ -374,7 +402,36 @@ export async function updateAnnotation(supabase: SupabaseClient, id: string, bod
 	return data;
 }
 
-export async function deleteAnnotation(supabase: SupabaseClient, id: string) {
+export async function deleteAnnotation(
+	supabase: SupabaseClient,
+	id: string,
+	scope?: { documentId: string; userId: string }
+) {
+	let deleted: { highlight_id: string } | null = null;
+	if (scope) {
+		const { data: annotation, error: annErr } = await supabase
+			.from('annotations')
+			.select('highlight_id')
+			.eq('id', id)
+			.eq('owner_id', scope.userId)
+			.maybeSingle();
+
+		if (annErr) throw annErr;
+		if (!annotation) throw new AppNotFoundError('Annotation not found');
+		deleted = annotation as { highlight_id: string };
+
+		const { data: highlight, error: hlErr } = await supabase
+			.from('highlights')
+			.select('id')
+			.eq('id', annotation.highlight_id)
+			.eq('document_id', scope.documentId)
+			.maybeSingle();
+
+		if (hlErr) throw hlErr;
+		if (!highlight) throw new AppNotFoundError('Annotation does not belong to this document');
+	}
+
 	const { error } = await supabase.from('annotations').delete().eq('id', id);
 	if (error) throw error;
+	return deleted;
 }

@@ -65,5 +65,6 @@ export async function createHighlightScreenshotSignedUrl(
 
 export async function removeHighlightScreenshot(supabase: SupabaseClient, path: string | null) {
 	if (!path) return;
-	await supabase.storage.from(SCREENSHOT_BUCKET).remove([path]);
+	const { error } = await supabase.storage.from(SCREENSHOT_BUCKET).remove([path]);
+	if (error) throw error;
 }
