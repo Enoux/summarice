@@ -23,6 +23,14 @@ export const LIGHT_HIGHLIGHT_SLOT_HEX: Record<CategorySlotId, string> = {
 	5: '#f97316'
 };
 export const DEFAULT_SLOT_HEX = LIGHT_HIGHLIGHT_SLOT_HEX;
+export const HIGHLIGHT_COLOR_ALIASES = {
+	yellow: LIGHT_HIGHLIGHT_SLOT_HEX[1],
+	green: LIGHT_HIGHLIGHT_SLOT_HEX[2],
+	blue: LIGHT_HIGHLIGHT_SLOT_HEX[3],
+	pink: LIGHT_HIGHLIGHT_SLOT_HEX[4],
+	orange: LIGHT_HIGHLIGHT_SLOT_HEX[5]
+} as const satisfies Record<string, string>;
+export type HighlightColorAlias = keyof typeof HIGHLIGHT_COLOR_ALIASES;
 
 const HEX_COLOR_RE = /^#[0-9a-f]{6}$/i;
 const DARK_CHROMA_FACTOR = 0.82;
@@ -33,6 +41,11 @@ export function slotHex(slot: CategorySlotId): string {
 
 export function canonicalHighlightPalette(): string[] {
 	return CATEGORY_SLOT_IDS.map((id) => LIGHT_HIGHLIGHT_SLOT_HEX[id]);
+}
+
+export function searchColorFilterValue(value: string): string {
+	const normalized = value.trim().toLowerCase();
+	return HIGHLIGHT_COLOR_ALIASES[normalized as HighlightColorAlias] ?? normalized;
 }
 
 export function resolveHighlightPalette(mode: HighlightColorMode): string[] {

@@ -4,7 +4,8 @@ import {
 	LIGHT_HIGHLIGHT_SLOT_HEX,
 	canonicalHighlightPalette,
 	resolveHighlightColor,
-	resolveHighlightPalette
+	resolveHighlightPalette,
+	searchColorFilterValue
 } from './color-slots';
 
 describe('highlight categories color authority', () => {
@@ -46,5 +47,11 @@ describe('highlight categories color authority', () => {
 	it('returns unsupported colors unchanged', () => {
 		expect(resolveHighlightColor('rgb(255, 0, 0)', 'dark')).toBe('rgb(255, 0, 0)');
 		expect(resolveHighlightColor('#xyzxyz', 'dark')).toBe('#xyzxyz');
+	});
+
+	it('normalizes search aliases while preserving custom category labels', () => {
+		expect(searchColorFilterValue('Yellow')).toBe('#facc15');
+		expect(searchColorFilterValue('green')).toBe('#22c55e');
+		expect(searchColorFilterValue('keyidea')).toBe('keyidea');
 	});
 });
