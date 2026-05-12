@@ -10,7 +10,13 @@
 	const currentMode = $derived(mode.current);
 </script>
 
-<div class="flex flex-col bg-muted/30 {page.url.pathname.startsWith('/doc') ? 'h-screen overflow-hidden' : 'min-h-screen'}">
+<div
+	class="flex flex-col bg-muted/30 {page.url.pathname.startsWith('/doc')
+		? 'h-dvh overflow-hidden'
+		: page.url.pathname.startsWith('/chat')
+			? 'h-dvh max-h-dvh min-h-0 overflow-x-hidden'
+			: 'min-h-screen'}"
+>
 	<!-- Top Navbar -->
 	<header class="navbar-solid px-2 sm:px-6">
 		<div class="mx-auto flex h-full w-full items-center justify-between">
@@ -97,7 +103,13 @@
 
 	<!-- Main Content -->
 	<main class="flex-1 min-h-0">
-		<div class={page.url.pathname.startsWith('/doc') ? "h-full w-full" : "mx-auto max-w-7xl p-4 sm:p-8"}>
+		<div
+			class={page.url.pathname.startsWith('/doc')
+				? 'h-full w-full'
+				: page.url.pathname.startsWith('/chat')
+					? 'mx-auto flex h-full min-h-0 w-full max-w-7xl flex-col p-4 sm:p-8'
+					: 'mx-auto max-w-7xl p-4 sm:p-8'}
+		>
 			{@render children()}
 		</div>
 	</main>

@@ -1,7 +1,13 @@
-<div class="flex h-[100dvh] items-center justify-center bg-background text-foreground">
-	<div class="text-center">
-		<h1 class="text-3xl font-bold">Deep Mode Chat</h1>
-		<p class="text-muted-foreground mt-2">TODO: Implement Deep mode chat</p>
-		<a href="/" class="mt-6 inline-block text-primary hover:underline">Back to Dashboard</a>
+<script lang="ts">
+	import FastLibrarySearch from '$lib/components/search/FastLibrarySearch.svelte';
+</script>
+
+<svelte:head>
+	<title>Chat Search - Summarice</title>
+</svelte:head>
+
+<div class="flex min-h-0 flex-1 flex-col">
+	<div class="mx-auto w-full max-w-3xl shrink-0 pt-2">
+		<FastLibrarySearch />
 	</div>
 </div>

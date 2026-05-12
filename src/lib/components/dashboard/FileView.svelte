@@ -1,4 +1,3 @@
-
 <script lang="ts">
 	import { Library, Search } from '@lucide/svelte';
 	import DropZone from '$lib/components/dashboard/DropZone.svelte';
