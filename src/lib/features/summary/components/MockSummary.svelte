@@ -1,12 +1,39 @@
 <script lang="ts">
 	import { page } from '$app/state';
-	import { AlertCircle, FileText, LoaderCircle, RotateCcw, Sparkles, History, CheckCircle2 } from '@lucide/svelte';
+	import { AlertCircle, FileText, LoaderCircle, RotateCcw, Sparkles, History, Star, CheckCircle2 } from '@lucide/svelte';
 import type { CommentedHighlight, PdfHighlighterUtils } from '$lib/pdf-highlighter';
 	import MockSummaryContent from './MockSummaryContent.svelte';
 	import { ScrollArea } from '$lib/components/ui/scroll-area/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Badge } from '$lib/components/ui/badge/index.js';
+	import * as Popover from '$lib/components/ui/popover';
 	import { cn } from '$lib/utils';
+
+	import StarRating from "$lib/features/summary/components/StarRating.svelte";
+	import PillRating from "$lib/features/summary/components/PillRating.svelte";
+	
+	let rating = $state(4);
+
+	let comments = [
+		"Very helpful",
+		"Very helpful p2",
+		"Accurate",
+		"Truth Nuke"
+	];
+
+	let selectedComments = $state<string[]>([]);
+
+	function handleToggle(comment: string, selected: boolean) {
+        if (selected) {
+            selectedComments = [...selectedComments, comment];
+        } else {
+            selectedComments = selectedComments.filter(
+                (c) => c !== comment
+            );
+        }
+
+        // console.log(selectedComments);
+    }
 
 	type SummaryCitation = {
 		id: string;
@@ -390,11 +417,10 @@ import type { CommentedHighlight, PdfHighlighterUtils } from '$lib/pdf-highlight
 			</div>
 
 			{#if hasAnySummary}
-				<div class="flex shrink-0 items-center gap-2">
+				<div class="flex flex-col shrink-0 items-center gap-2">
 					<Button
-						variant="outline"
 						size="sm"
-						class="h-9 gap-2 shadow-sm font-semibold"
+						class="h-9 gap-2 shadow-sm font-semibold w-35"
 						onclick={generateSummary}
 						disabled={isGenerating}
 					>
@@ -405,6 +431,41 @@ import type { CommentedHighlight, PdfHighlighterUtils } from '$lib/pdf-highlight
 						{/if}
 						Regenerate
 					</Button>
+
+					<Popover.Root>
+						<Popover.Trigger>
+							<Button 
+								variant="outline"
+								size="sm"
+								class="h-9 gap-2 shadow-sm font-semibold w-35"
+								disabled={isGenerating}
+							>
+								{#if isGenerating}
+									<LoaderCircle class="size-3.5 animate-spin" />
+								{:else}
+									<Star class="size-3.5" />
+								{/if}
+								Rate Summary
+							</Button>
+						</Popover.Trigger>
+						<Popover.Content class="w-64 p-3" align="end">
+							<div class="flex justify-center items-center">
+								<StarRating bind:value={rating} />
+							</div>
+
+							<div class="flex flex-wrap gap-2">
+								{#each comments as comment}
+									<PillRating comment={comment} onToggle={handleToggle}/>
+								{/each}
+							</div>
+
+							<form action="" method="POST" class="ml-auto">
+								<Button size="sm" type="submit" class="h-9 gap-2 shadow-sm font-semibold">
+									Submit
+								</Button>
+							</form>
+						</Popover.Content>
+					</Popover.Root>
 				</div>
 			{/if}
 		</div>
