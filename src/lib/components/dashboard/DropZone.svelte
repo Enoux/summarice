@@ -54,7 +54,7 @@
 		</div>
 		<div class="space-y-1">
 			<p class="text-sm font-medium">Drag & drop your PDF here</p>
-			<p class="text-xs text-muted-foreground">Or click to browse (up to 50MB)</p>
+			<p class="text-xs text-muted-foreground">Or click to browse (up to 10MB)</p>
 		</div>
 	</div>
 </div>

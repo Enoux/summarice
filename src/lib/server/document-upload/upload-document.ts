@@ -18,6 +18,14 @@ export async function uploadDocumentFile(
 	userId: string,
 	file: File
 ) {
+	const MAX_FILE_SIZE = 10 * 1024 * 1024;
+
+	if (file.size > MAX_FILE_SIZE) {
+		throw new Error(
+			'File size too big.'
+		)
+    }
+
 	const sourceBytes = new Uint8Array(await file.arrayBuffer());
 	const parsed = await parsePdfWithLiteParse(cloneBytes(sourceBytes));
 	const pages = liteParseResultToPages(parsed);
