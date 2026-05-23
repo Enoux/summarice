@@ -27,10 +27,35 @@ _Avoid_: Using "note" for the highlight-level comment field.
 ### Search
 
 **Fast library search**:
-Cross-document highlight and summary retrieval on `/chat`, distinct from the in-document sidebar highlight filter.
+Cross-document highlight and summary retrieval from the global navbar (compact trigger, expanded panel below the header), distinct from the in-document sidebar highlight filter. The `/chat` route retains the Fast/Deep mode toggle only; it is not the retrieval surface.
+
+**Search filter chip**:
+UI control on fast library search that narrows the results dropdown client-side after a text query returns (not a server retrieval parameter).
+
+**Result scope**:
+Chip setting on fast library search that controls which result lanes appear: both highlight and document lanes, highlights only, or documents only.
+
+_Avoid_: Typing inline filter tokens (`doc:`, `color:`, `has:note`, `page:`) in the query field — use chips instead.
 
 **Sidebar highlight search**:
 Filters highlights already loaded for the open document in the viewer sidebar.
+
+**Direct match**:
+A highlight or note hit surfaced in the direct-matches lane of fast library search.
+
+**Cited summary highlight**:
+A highlight returned because the current summary cites it and the query matched that summary passage.
+
+_Avoid_: "Summary match" in product copy.
+
+**Related idea**:
+A highlight surfaced by semantic similarity in fast library search, not by a direct lexical hit on the query.
+
+**Document match**:
+A document-level hit when a summary passage matched but had no local citations to map to highlights.
+
+**Search result page preview**:
+Pointer-hover preview of a PDF page for a fast library search result on `/chat`; distinct from the in-document thumbnail panel.
 
 ### Flagged ambiguities
 
