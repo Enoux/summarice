@@ -32,7 +32,7 @@ test.describe('Issue 07 per-document summary flow', () => {
 	test('generates a streaming summary with citations and persists rows', async ({ page }) => {
 		test.fixme(
 			true,
-			'Issue 07 is not fully wired yet: Summary.svelte is still a placeholder and summaries/summary_citations persistence is not implemented in this branch.'
+			'Issue 07 is not fully wired yet: summaries/summary_citations persistence is not implemented in this branch.'
 		);
 
 		const fixture = await createFixtureDocumentWithSingleAnnotatedHighlight();
