@@ -65,6 +65,7 @@
 	let currentPage = $state(1);
 	let sidebarWidth = $state(300);
 	let selectedHighlightId = $state<string | null>(null);
+	let sidebarActiveTab = $state<'highlights' | 'summary'>('highlights');
 	let explainingHighlightIds = $state<Set<string>>(new Set());
 	let deletingHighlightIds = $state<Set<string>>(new Set());
 	let savingAdjustedHighlightIds = $state<Set<string>>(new Set());
@@ -743,6 +744,7 @@
 								onDeleteAnnotation={deleteAnnotation}
 
 								bind:selectedHighlightId
+								bind:activeTab={sidebarActiveTab}
 								viewerUtils={pdfHighlighterUtils}
 							/>
 						</div>

@@ -6,12 +6,15 @@
 	import { Search, RotateCcw, MessageSquare, LayoutList } from '@lucide/svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
-	import { ScrollArea } from '$lib/components/ui/scroll-area/index.js';
 	import { Separator } from '$lib/components/ui/separator/index.js';
 	import { onMount } from 'svelte';
-	import { PUBLIC_MOCK_COMPONENTS } from '$env/static/public';
-	import MockSummary from '$lib/features/summary/components/MockSummary.svelte';
 	import Summary from '$lib/features/summary/components/Summary.svelte';
+	import { buildHighlightLexicalCorpus } from '$lib/search/highlight-lexical-corpus';
+	import {
+		matchesHighlightLexical,
+		scoreHighlightLexical
+	} from '$lib/search/highlight-lexical-match';
+	import { parseWebsearchQuery } from '$lib/search/websearch-query';
 
 	interface Props {
 		highlightsStore: HighlightsModel<CommentedHighlight>;
@@ -33,6 +36,7 @@
 		onDeleteAnnotation: (h: CommentedHighlight, id: string) => Promise<void>;
 
 		selectedHighlightId?: string | null;
+		activeTab?: 'highlights' | 'summary';
 		viewerUtils?: Partial<PdfHighlighterUtils>;
 	}
 
@@ -52,11 +56,11 @@
 		onDeleteAnnotation,
 
 		selectedHighlightId = $bindable(null),
+		activeTab = $bindable('highlights'),
 		viewerUtils
 	}: Props = $props();
 
 	let query = $state('');
-	let activeTab = $state('highlights');
 	let isResizing = $state(false);
 
 	let activeSummaryCitations = $state<any[]>([]);
@@ -72,16 +76,38 @@
 		return counts;
 	});
 
+	const parsedQuery = $derived(parseWebsearchQuery(query));
+
 	const filtered = $derived.by((): CommentedHighlight[] => {
-		const q = query.trim().toLowerCase();
-		let list = [...highlightsStore.highlights];
-		list.sort((a, b) => (a.ordinal ?? 0) - (b.ordinal ?? 0));
-		if (!q) return list;
-		return list.filter((h: CommentedHighlight) => {
-			const text = h.content?.text?.toLowerCase() ?? '';
-			const com = h.comment?.toLowerCase() ?? '';
-			return text.includes(q) || com.includes(q) || (h.id?.toLowerCase().includes(q) ?? false);
+		const list = [...highlightsStore.highlights];
+		const trimmedQuery = query.trim();
+
+		if (trimmedQuery.length === 0) {
+			list.sort((a, b) => (a.ordinal ?? 0) - (b.ordinal ?? 0));
+			return list;
+		}
+
+		const scored = list
+			.map((highlight) => {
+				const corpus = buildHighlightLexicalCorpus(highlight);
+				if (!matchesHighlightLexical(corpus, parsedQuery)) {
+					return null;
+				}
+				return {
+					highlight,
+					score: scoreHighlightLexical(corpus, parsedQuery)
+				};
+			})
+			.filter((entry): entry is { highlight: CommentedHighlight; score: number } => entry !== null);
+
+		scored.sort((a, b) => {
+			if (b.score !== a.score) {
+				return b.score - a.score;
+			}
+			return (a.highlight.ordinal ?? 0) - (b.highlight.ordinal ?? 0);
 		});
+
+		return scored.map((entry) => entry.highlight);
 	});
 
 	function selectHighlight(h: CommentedHighlight) {
@@ -169,86 +195,103 @@
 			</button>
 		</div>
 
-		{#if activeTab === 'highlights'}
-			<div class="px-2 py-3">
-				<div class="relative">
-					<Search class="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-					<Input type="search" bind:value={query} placeholder="Search highlights..." class="pl-9" />
-				</div>
-			</div>
-			<Separator class="opacity-50" />
-
-			<ScrollArea class="min-h-0 flex-1" orientation="vertical">
-				<div class="flex flex-col gap-2 p-3" role="listbox" aria-label="Document highlights">
-					{#each filtered as h (h.id)}
-						<HighlightListItem
-							highlight={h}
-							onSelect={selectHighlight}
-							onDelete={deleteOne}
-							{onRecategorize}
-							{categoryLabels}
-							{decorativeMode}
-							{viewerColorMode}
-							{onAddAnnotation}
-							{onUpdateAnnotation}
-							{onDeleteAnnotation}
-
-							selected={selectedHighlightId === (h.id ?? null)}
-							onHover={(id) => highlightsStore.setHoveredHighlightId(id)}
-							citationCount={citationCounts[h.id!] ?? 0}
-							onNavigateToSummary={() => {
-								activeTab = 'summary';
-								summaryHighlightIdToScrollTo = h.id!;
-							}}
+		<div class="flex min-h-0 flex-1 flex-col overflow-hidden">
+			<div
+				class="flex min-h-0 flex-1 flex-col overflow-hidden"
+				class:hidden={activeTab !== 'highlights'}
+				aria-hidden={activeTab !== 'highlights'}
+				inert={activeTab !== 'highlights'}
+			>
+				<div class="px-2 py-3">
+					<div class="relative">
+						<Search class="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+						<Input
+							type="search"
+							bind:value={query}
+							placeholder="Search highlights, comments, notes…"
+							class="pl-9"
 						/>
-					{:else}
-						<div class="flex flex-col items-center justify-center space-y-3 py-20 text-center">
-							<div class="rounded-full bg-muted p-4">
-								<LayoutList class="size-8 text-muted-foreground/40" />
-							</div>
-							<div class="space-y-1">
-								<p class="text-sm font-medium">No highlights yet</p>
-								<p class="text-muted-foreground max-w-[200px] text-xs">
-									Select text or an area in the PDF to create your first highlight.
-								</p>
-							</div>
-						</div>
-					{/each}
+					</div>
 				</div>
-			</ScrollArea>
+				<Separator class="opacity-50" />
 
-			<Separator />
+				<div class="minimal-scrollbar min-h-0 flex-1 overflow-y-auto">
+					<div class="flex flex-col gap-2 p-3" role="listbox" aria-label="Document highlights">
+						{#each filtered as h (h.id)}
+							<HighlightListItem
+								highlight={h}
+								onSelect={selectHighlight}
+								onDelete={deleteOne}
+								{onRecategorize}
+								{categoryLabels}
+								{decorativeMode}
+								{viewerColorMode}
+								{onAddAnnotation}
+								{onUpdateAnnotation}
+								{onDeleteAnnotation}
 
-			{#if onResetAll}
-				<div class="p-3">
-					<Button
-						variant="outline"
-						size="sm"
-						class="w-full gap-2 text-muted-foreground hover:text-destructive"
-						onclick={() => onResetAll()}
-					>
-						<RotateCcw class="size-3.5" />
-						Delete all highlights
-					</Button>
+								selected={selectedHighlightId === (h.id ?? null)}
+								onHover={(id) => highlightsStore.setHoveredHighlightId(id)}
+								citationCount={citationCounts[h.id!] ?? 0}
+								onNavigateToSummary={() => {
+									activeTab = 'summary';
+									summaryHighlightIdToScrollTo = h.id!;
+								}}
+							/>
+						{:else}
+							<div class="flex flex-col items-center justify-center space-y-3 py-20 text-center">
+								<div class="rounded-full bg-muted p-4">
+									<LayoutList class="size-8 text-muted-foreground/40" />
+								</div>
+								<div class="space-y-1">
+									<p class="text-sm font-medium">No highlights yet</p>
+									<p class="text-muted-foreground max-w-[200px] text-xs">
+										Select text or an area in the PDF to create your first highlight.
+									</p>
+								</div>
+							</div>
+						{/each}
+					</div>
 				</div>
-			{/if}
-		{:else}
-			{#if PUBLIC_MOCK_COMPONENTS === 'true'}
-				<MockSummary
+
+				<Separator />
+
+				{#if onResetAll}
+					<div class="p-3">
+						<Button
+							variant="outline"
+							size="sm"
+							class="w-full gap-2 text-muted-foreground hover:text-destructive"
+							onclick={() => onResetAll()}
+						>
+							<RotateCcw class="size-3.5" />
+							Delete all highlights
+						</Button>
+					</div>
+				{/if}
+			</div>
+
+			<div
+				class="flex min-h-0 flex-1 flex-col overflow-hidden"
+				class:hidden={activeTab !== 'summary'}
+				aria-hidden={activeTab !== 'summary'}
+				inert={activeTab !== 'summary'}
+			>
+				<Summary
 					highlights={highlightsStore.highlights}
 					{viewerUtils}
 					{viewerColorMode}
 					onJumpToHighlight={(id) => {
 						selectedHighlightId = id;
 						activeTab = 'highlights';
-						document.getElementById(`sidebar-highlight-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+						document
+							.getElementById(`sidebar-highlight-${id}`)
+							?.scrollIntoView({ behavior: 'smooth', block: 'center' });
 					}}
 					bind:activeCitations={activeSummaryCitations}
 					bind:scrollToHighlightId={summaryHighlightIdToScrollTo}
 				/>
-			{:else}
-				<Summary />
-			{/if}
-		{/if}
+			</div>
+		</div>
 	</div>
 </aside>
