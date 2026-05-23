@@ -53,8 +53,18 @@ export async function buildSummaryPrompt(
 		useColorsDecoratively: settings?.use_colors_decoratively ?? false
 	});
 
+	const filteredHighlights = highlights.filter((h) => {
+		if (h.kind == 'text') {
+			if (h.text != null)
+				return h.text.split(" ").length > 1;
+			else
+				return false;
+		}
+		return true;
+	})
+
 	const orderedPages = [...pages].sort((a, b) => a.page_number - b.page_number);
-	const orderedHighlights = [...highlights].sort((a, b) => a.ordinal - b.ordinal);
+	const orderedHighlights = [...filteredHighlights].sort((a, b) => a.ordinal - b.ordinal);
 	const ordinalWhitelist = orderedHighlights.map((highlight) => highlight.ordinal);
 	const categoryLabels = parseCategoryLabels(settings?.category_labels);
 	const pagesWithTags = renderDocumentPages(
