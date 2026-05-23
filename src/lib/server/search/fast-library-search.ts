@@ -3,6 +3,10 @@ import { getLLMProvider } from '$lib/server/ai';
 import { configuredEmbeddingModel } from '$lib/server/embeddings/highlight-embedding-service';
 import { errorMessage } from '$lib/server/error-message';
 import { searchColorFilterValue } from '$lib/highlights/color-slots';
+import {
+	buildPartialExcludedTerms,
+	buildPartialSearchTerms
+} from '$lib/search/partial-search-terms';
 
 const VECTOR_LIMIT = 50;
 const LEXICAL_LIMIT = 50;
@@ -323,33 +327,78 @@ export function mergeMissingVectorCandidates<T extends MergeCandidate>(
 }
 
 export async function searchFastLibrary(opts: FastSearchOptions): Promise<FastSearchResponse> {
-	const lexicalResponse = await searchFastLibraryLexical(opts);
-	const semanticResponse = await searchFastLibrarySemantic(opts, lexicalResponse);
+	const directResponse = await searchFastLibraryDirect(opts);
+	const enrichmentResponse = await searchFastLibraryEnrichment(opts, directResponse);
+	const semanticResponse = await searchFastLibrarySemantic(opts, enrichmentResponse);
 	return semanticResponse;
 }
 
 export async function searchFastLibraryLexical(
 	opts: FastSearchOptions
 ): Promise<FastSearchResponse> {
+	return searchFastLibraryEnrichment(opts, await searchFastLibraryDirect(opts));
+}
+
+export async function searchFastLibraryDirect(opts: FastSearchOptions): Promise<FastSearchResponse> {
 	const startedAt = performance.now();
 	const parsed = parseFastSearchQuery(opts.rawQuery);
-
 	if (!parsed.textQuery && Object.keys(parsed.filters).length === 0) {
 		return buildEmptyResponse(parsed, startedAt);
 	}
 
 	try {
-		const [lexicalRows, documentRows] = await Promise.all([
-			fetchLexicalCandidates(opts.supabase, opts.ownerId, parsed),
-			fetchDocumentCandidates(opts.supabase, opts.ownerId, parsed)
-		]);
-		const directResults = lexicalRows
-			.filter((row) => row.source === 'direct')
+		const directRows = await fetchDirectCandidates(opts.supabase, opts.ownerId, parsed);
+		const directResults = directRows
 			.slice(0, GROUPED_LANE_LIMIT)
 			.map((row) => shapeHighlightResult(rowToCandidateRecord(row), 'direct_highlight'));
-		const summaryResults = lexicalRows
-			.filter((row) => row.source === 'summary')
-			.map((row) => shapeHighlightResult(rowToCandidateRecord(row), 'summary_highlight'));
+		const lanes = capGroupedLanes([
+			{ id: 'direct', label: 'Direct matches', results: directResults },
+			{ id: 'summary', label: 'Cited summary highlights', results: [] },
+			{ id: 'semantic', label: 'Related ideas', results: [] },
+			{ id: 'document', label: 'Document matches', results: [] }
+		]);
+		const results = flattenLanes(lanes);
+		const telemetry = buildTelemetry(parsed, [], directRows, [], results, startedAt, 0);
+
+		return { results, lanes, telemetry };
+	} catch (error) {
+		console.error('[fast-library-search direct]', {
+			ownerId: opts.ownerId,
+			rawQuery: opts.rawQuery,
+			textQuery: parsed.textQuery,
+			filters: parsed.filters,
+			error: errorMessage(error, {
+				operation: 'fast library direct search',
+				params: { ownerId: opts.ownerId, rawQuery: opts.rawQuery }
+			})
+		});
+		throw error;
+	}
+}
+
+export async function searchFastLibraryEnrichment(
+	opts: FastSearchOptions,
+	previousResponse: FastSearchResponse
+): Promise<FastSearchResponse> {
+	const startedAt = performance.now();
+	const parsed = parseFastSearchQuery(opts.rawQuery);
+
+	if (!parsed.textQuery && Object.keys(parsed.filters).length === 0) {
+		return previousResponse;
+	}
+
+	try {
+		const [summaryRows, documentRows] = await Promise.all([
+			fetchSummaryCandidates(opts.supabase, opts.ownerId, parsed),
+			fetchDocumentCandidates(opts.supabase, opts.ownerId, parsed)
+		]);
+		const existingResults = flattenLanes(previousResponse.lanes);
+		const directResults = existingResults.filter(
+			(result): result is FastSearchHighlightResult => result.kind === 'direct_highlight'
+		);
+		const summaryResults = summaryRows.map((row) =>
+			shapeHighlightResult(rowToCandidateRecord(row), 'summary_highlight')
+		);
 		const documentResults = documentRows
 			.slice(0, GROUPED_LANE_LIMIT)
 			.map((row) => shapeDocumentResult(row));
@@ -360,23 +409,29 @@ export async function searchFastLibraryLexical(
 				label: 'Cited summary highlights',
 				results: removeDirectHighlightDuplicates(directResults, summaryResults)
 			},
-			{ id: 'semantic', label: 'Related ideas', results: [] },
+			{
+				id: 'semantic',
+				label: 'Related ideas',
+				results: existingResults.filter((result) => result.kind === 'semantic_highlight')
+			},
 			{ id: 'document', label: 'Document matches', results: documentResults }
 		]);
 		const results = flattenLanes(lanes);
-		const telemetry = buildTelemetry(parsed, [], lexicalRows, [], results, startedAt, 0);
-
-		await logSearch(opts.supabase, opts.ownerId, opts.rawQuery, telemetry);
+		const telemetry = mergeTelemetry(
+			previousResponse.telemetry,
+			buildTelemetry(parsed, [], summaryRows, [], results, startedAt, 0),
+			results
+		);
 
 		return { results, lanes, telemetry };
 	} catch (error) {
-		console.error('[fast-library-search]', {
+		console.error('[fast-library-search enrichment]', {
 			ownerId: opts.ownerId,
 			rawQuery: opts.rawQuery,
 			textQuery: parsed.textQuery,
 			filters: parsed.filters,
 			error: errorMessage(error, {
-				operation: 'fast library search',
+				operation: 'fast library enrichment search',
 				params: { ownerId: opts.ownerId, rawQuery: opts.rawQuery }
 			})
 		});
@@ -391,7 +446,10 @@ export async function searchFastLibrarySemantic(
 	const startedAt = performance.now();
 	const parsed = parseFastSearchQuery(opts.rawQuery);
 
-	if (!parsed.textQuery) return lexicalResponse;
+	if (!parsed.textQuery) {
+		await logSearch(opts.supabase, opts.ownerId, opts.rawQuery, lexicalResponse.telemetry);
+		return lexicalResponse;
+	}
 
 	try {
 		const embedding = await getQueryEmbedding({
@@ -416,15 +474,13 @@ export async function searchFastLibrarySemantic(
 		);
 		const lanes = capGroupedLanes(groupMergedResults(mergedItems.map((item) => item.result)));
 		const results = flattenLanes(lanes);
-		const telemetry = buildTelemetry(
-			parsed,
-			vectorRows,
-			[],
-			ranked,
-			results,
-			startedAt,
-			vectorRows.length
+		const telemetry = mergeTelemetry(
+			lexicalResponse.telemetry,
+			buildTelemetry(parsed, vectorRows, [], ranked, results, startedAt, vectorRows.length),
+			results
 		);
+
+		await logSearch(opts.supabase, opts.ownerId, opts.rawQuery, telemetry);
 
 		return { results, lanes, telemetry };
 	} catch (error) {
@@ -612,11 +668,37 @@ async function fetchVectorCandidates(
 	return (data ?? []) as RawCandidate[];
 }
 
+async function fetchDirectCandidates(
+	supabase: SupabaseClient,
+	ownerId: string,
+	parsed: ParsedFastSearchQuery
+): Promise<RawCandidate[]> {
+	const partialTerms = buildPartialSearchTerms(parsed.textQuery);
+	const partialExcluded = buildPartialExcludedTerms(parsed.textQuery);
+	const { data, error } = await supabase.rpc('fast_search_direct_candidates', {
+		p_owner_id: ownerId,
+		p_text_query: parsed.textQuery,
+		p_document_title: parsed.filters.documentTitle ?? null,
+		p_color: parsed.filters.color ?? null,
+		p_has_note: parsed.filters.hasNote ?? false,
+		p_page_start: parsed.filters.page?.start ?? null,
+		p_page_end: parsed.filters.page?.end ?? null,
+		p_partial_terms: partialTerms,
+		p_partial_excluded: partialExcluded,
+		p_limit: LEXICAL_LIMIT
+	});
+
+	if (error) throw error;
+	return (data ?? []) as RawCandidate[];
+}
+
 async function fetchLexicalCandidates(
 	supabase: SupabaseClient,
 	ownerId: string,
 	parsed: ParsedFastSearchQuery
 ): Promise<RawCandidate[]> {
+	const partialTerms = buildPartialSearchTerms(parsed.textQuery);
+	const partialExcluded = buildPartialExcludedTerms(parsed.textQuery);
 	const { data, error } = await supabase.rpc('fast_search_lexical_candidates', {
 		p_owner_id: ownerId,
 		p_text_query: parsed.textQuery,
@@ -625,6 +707,32 @@ async function fetchLexicalCandidates(
 		p_has_note: parsed.filters.hasNote ?? false,
 		p_page_start: parsed.filters.page?.start ?? null,
 		p_page_end: parsed.filters.page?.end ?? null,
+		p_partial_terms: partialTerms,
+		p_partial_excluded: partialExcluded,
+		p_limit: LEXICAL_LIMIT
+	});
+
+	if (error) throw error;
+	return (data ?? []) as RawCandidate[];
+}
+
+async function fetchSummaryCandidates(
+	supabase: SupabaseClient,
+	ownerId: string,
+	parsed: ParsedFastSearchQuery
+): Promise<RawCandidate[]> {
+	const partialTerms = buildPartialSearchTerms(parsed.textQuery);
+	const partialExcluded = buildPartialExcludedTerms(parsed.textQuery);
+	const { data, error } = await supabase.rpc('fast_search_summary_candidates', {
+		p_owner_id: ownerId,
+		p_text_query: parsed.textQuery,
+		p_document_title: parsed.filters.documentTitle ?? null,
+		p_color: parsed.filters.color ?? null,
+		p_has_note: parsed.filters.hasNote ?? false,
+		p_page_start: parsed.filters.page?.start ?? null,
+		p_page_end: parsed.filters.page?.end ?? null,
+		p_partial_terms: partialTerms,
+		p_partial_excluded: partialExcluded,
 		p_limit: LEXICAL_LIMIT
 	});
 
@@ -637,10 +745,14 @@ async function fetchDocumentCandidates(
 	ownerId: string,
 	parsed: ParsedFastSearchQuery
 ): Promise<RawDocumentCandidate[]> {
+	const partialTerms = buildPartialSearchTerms(parsed.textQuery);
+	const partialExcluded = buildPartialExcludedTerms(parsed.textQuery);
 	const { data, error } = await supabase.rpc('fast_search_document_candidates', {
 		p_owner_id: ownerId,
 		p_text_query: parsed.textQuery,
 		p_document_title: parsed.filters.documentTitle ?? null,
+		p_partial_terms: partialTerms,
+		p_partial_excluded: partialExcluded,
 		p_limit: LEXICAL_LIMIT
 	});
 
@@ -815,6 +927,27 @@ function buildTelemetry(
 		},
 		orderedResultIds: results.map(resultIdentity),
 		latencyMs: Math.round(performance.now() - startedAt)
+	};
+}
+
+function mergeTelemetry(
+	previous: FastSearchTelemetry,
+	current: FastSearchTelemetry,
+	results: FastSearchResult[]
+): FastSearchTelemetry {
+	return {
+		textQuery: current.textQuery,
+		filters: current.filters,
+		stageCounts: {
+			vector: previous.stageCounts.vector + current.stageCounts.vector,
+			lexical: previous.stageCounts.lexical + current.stageCounts.lexical,
+			semantic: previous.stageCounts.semantic + current.stageCounts.semantic,
+			fused: previous.stageCounts.fused + current.stageCounts.fused,
+			mmrInput: previous.stageCounts.mmrInput + current.stageCounts.mmrInput,
+			results: results.length
+		},
+		orderedResultIds: results.map(resultIdentity),
+		latencyMs: previous.latencyMs + current.latencyMs
 	};
 }
 

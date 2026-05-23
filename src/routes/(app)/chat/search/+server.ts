@@ -2,13 +2,15 @@ import { json, type RequestHandler } from '@sveltejs/kit';
 import { errorMessage } from '$lib/server/error-message';
 import {
 	FastSearchQueryError,
-	searchFastLibraryLexical,
+	searchFastLibraryDirect,
+	searchFastLibraryEnrichment,
 	searchFastLibrarySemantic,
 	type FastSearchResponse
 } from '$lib/server/search/fast-library-search';
 
 type FastSearchRequestBody = {
 	query?: unknown;
+	previousResponse?: unknown;
 	lexicalResponse?: unknown;
 };
 
@@ -40,10 +42,8 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 			ownerId: locals.user.id,
 			rawQuery: body.query
 		};
-		const response =
-			stage === 'semantic'
-				? await searchFastLibrarySemantic(baseOptions, readLexicalResponse(body.lexicalResponse))
-				: await searchFastLibraryLexical(baseOptions);
+		const previousResponse = readOptionalPreviousResponse(body);
+		const response = await searchStage(stage, baseOptions, previousResponse);
 
 		return json(response);
 	} catch (error) {
@@ -75,9 +75,42 @@ async function readFastSearchRequestBody(request: Request): Promise<FastSearchRe
 	}
 }
 
-function readLexicalResponse(response: unknown): FastSearchResponse {
+async function searchStage(
+	stage: string | null,
+	baseOptions: Parameters<typeof searchFastLibraryDirect>[0],
+	previousResponse: FastSearchResponse | null
+): Promise<FastSearchResponse> {
+	if (stage === 'semantic') {
+		return searchFastLibrarySemantic(baseOptions, requirePreviousResponse(previousResponse, 'Semantic'));
+	}
+
+	if (stage === 'enrichment') {
+		return searchFastLibraryEnrichment(baseOptions, requirePreviousResponse(previousResponse, 'Enrichment'));
+	}
+
+	return searchFastLibraryDirect(baseOptions);
+}
+
+function readOptionalPreviousResponse(body: FastSearchRequestBody): FastSearchResponse | null {
+	const response = body.previousResponse ?? body.lexicalResponse;
+	if (response === undefined || response === null) return null;
+	return readPreviousResponse(response);
+}
+
+function requirePreviousResponse(
+	response: FastSearchResponse | null,
+	stageLabel: string
+): FastSearchResponse {
+	if (!response) {
+		throw new FastSearchQueryError(`${stageLabel} search requires a previous response.`);
+	}
+
+	return response;
+}
+
+function readPreviousResponse(response: unknown): FastSearchResponse {
 	if (!response || typeof response !== 'object') {
-		throw new FastSearchQueryError('Semantic search requires a lexical response.');
+		throw new FastSearchQueryError('Previous search response must be an object.');
 	}
 
 	return response as FastSearchResponse;
