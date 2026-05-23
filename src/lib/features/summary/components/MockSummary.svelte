@@ -35,6 +35,13 @@ import type { CommentedHighlight, PdfHighlighterUtils } from '$lib/pdf-highlight
         // console.log(selectedComments);
     }
 
+	type userFeedback = {
+		rating: number;
+		feedback: string;
+		summary_id?: string;
+		summary_version?: number;
+	};
+
 	type SummaryCitation = {
 		id: string;
 		highlight_id: string | null;
@@ -84,6 +91,7 @@ import type { CommentedHighlight, PdfHighlighterUtils } from '$lib/pdf-highlight
 	let selectedSummaryId = $state<string | null>(initialSelectedSummaryId);
 	let isLoading = $state(false);
 	let isGenerating = $state(false);
+	let isSubmitting = $state(false);
 	let loadError = $state<string | null>(null);
 	let generationError = $state<string | null>(null);
 	let streamingSummary = $state<SummaryVersion | null>(null);
@@ -390,6 +398,30 @@ import type { CommentedHighlight, PdfHighlighterUtils } from '$lib/pdf-highlight
 		}
 	}
 
+	async function submitFeedback() {
+		if (!documentId || isSubmitting) return;
+
+		isSubmitting = true;
+
+		const userFeedback: userFeedback = {
+			rating: rating,
+			feedback: selectedComments.join(","),
+			summary_id: selectedSummaryId == null ? undefined : selectedSummaryId,
+			summary_version: sortedSummaries.find((s) => s.id === selectedSummaryId)?.version
+		};
+
+		try {
+			const response = await fetch(`/doc/${documentId}/summary/feedback`, { method: 'POST', body: JSON.stringify(userFeedback) });
+			if (!response.ok || !response.body) {
+				throw new Error('Submission of feedback failed.');
+			}
+		} catch (error) {
+			console.error('[Summary Feedback] submission failed', error);
+		} finally {
+			isSubmitting = false;
+		}
+	}
+
 	// URL hash on-load: if the URL contains #hl-<ordinal>, navigate to that citation
 	// once activeSummary is populated and the component is mounted.
 	let hashHandled = $state(false);
@@ -422,7 +454,7 @@ import type { CommentedHighlight, PdfHighlighterUtils } from '$lib/pdf-highlight
 						size="sm"
 						class="h-9 gap-2 shadow-sm font-semibold w-35"
 						onclick={generateSummary}
-						disabled={isGenerating}
+						disabled={isGenerating || isSubmitting}
 					>
 						{#if isGenerating}
 							<LoaderCircle class="size-3.5 animate-spin" />
@@ -438,9 +470,9 @@ import type { CommentedHighlight, PdfHighlighterUtils } from '$lib/pdf-highlight
 								variant="outline"
 								size="sm"
 								class="h-9 gap-2 shadow-sm font-semibold w-35"
-								disabled={isGenerating}
+								disabled={isGenerating || isSubmitting}
 							>
-								{#if isGenerating}
+								{#if isGenerating || isSubmitting}
 									<LoaderCircle class="size-3.5 animate-spin" />
 								{:else}
 									<Star class="size-3.5" />
@@ -459,11 +491,12 @@ import type { CommentedHighlight, PdfHighlighterUtils } from '$lib/pdf-highlight
 								{/each}
 							</div>
 
-							<form action="" method="POST" class="ml-auto">
-								<Button size="sm" type="submit" class="h-9 gap-2 shadow-sm font-semibold">
-									Submit
-								</Button>
-							</form>
+							<Button 
+								size="sm" type="submit" class="h-9 gap-2 shadow-sm font-semibold"
+								onclick={submitFeedback}
+							>
+								Submit
+							</Button>
 						</Popover.Content>
 					</Popover.Root>
 				</div>
