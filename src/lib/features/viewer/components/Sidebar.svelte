@@ -208,7 +208,7 @@
 						<Input
 							type="search"
 							bind:value={query}
-							placeholder="Search highlights, comments, notes…"
+							placeholder="Search"
 							class="pl-9"
 						/>
 					</div>
