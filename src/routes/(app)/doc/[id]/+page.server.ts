@@ -8,6 +8,11 @@ import {
 	rowToCommentedHighlightWithScreenshot
 } from '$lib/server/highlights/highlight-service';
 import { parseCategoryLabels } from '$lib/highlights/color-slots';
+import {
+	createDocumentPdfSignedUrl,
+	DocumentPdfSignedUrlError,
+	VIEWER_DOCUMENT_PDF_SIGNED_URL_TTL_SECONDS
+} from '$lib/server/documents/create-document-pdf-signed-url';
 
 export const load: PageServerLoad = async ({ params, locals: { supabase, user } }) => {
 	try {
@@ -28,38 +33,36 @@ export const load: PageServerLoad = async ({ params, locals: { supabase, user } 
 			throw error(404, 'Document not found');
 		}
 
-		const storagePath = document.storage_path;
-		if (typeof storagePath !== 'string' || storagePath.length === 0) {
-			console.error('[doc/+page.server] missing storage path', {
-				documentId: id,
-				ownerId: user.id
-			});
-			throw error(500, 'Document file is missing');
-		}
-
-		// Fetch signed URL for the PDF
-		let storageData: { signedUrl: string } | null = null;
-		let storageError: { message?: string } | null = null;
+		let pdfUrl: string;
 		try {
-			const result = await supabase.storage.from('documents').createSignedUrl(storagePath, 43200); // 12 hour expiry
-			storageData = result.data as { signedUrl: string } | null;
-			storageError = result.error as { message?: string } | null;
+			pdfUrl = await createDocumentPdfSignedUrl(supabase, {
+				documentId: id,
+				userId: user.id,
+				ttlSeconds: VIEWER_DOCUMENT_PDF_SIGNED_URL_TTL_SECONDS
+			});
 		} catch (e) {
+			if (e instanceof DocumentPdfSignedUrlError) {
+				if (e.code === 'not_found') {
+					throw error(404, e.message);
+				}
+				if (e.code === 'missing_file') {
+					console.error('[doc/+page.server] missing storage path', {
+						documentId: id,
+						ownerId: user.id
+					});
+					throw error(500, e.message);
+				}
+				console.error('[doc/+page.server] createSignedUrl failed', {
+					documentId: id,
+					ownerId: user.id,
+					error: e
+				});
+				throw error(500, e.message);
+			}
 			console.error('[doc/+page.server] createSignedUrl crashed', {
 				documentId: id,
 				ownerId: user.id,
-				storagePath,
 				error: e
-			});
-			throw error(500, 'Could not generate signed URL');
-		}
-
-		if (storageError || !storageData) {
-			console.error('[doc/+page.server] createSignedUrl failed', {
-				documentId: id,
-				ownerId: user.id,
-				storagePath,
-				storageError
 			});
 			throw error(500, 'Could not generate signed URL');
 		}
@@ -92,7 +95,7 @@ export const load: PageServerLoad = async ({ params, locals: { supabase, user } 
 
 		return {
 			document,
-			pdfUrl: storageData.signedUrl,
+			pdfUrl,
 			highlights: highlightsPayload,
 			userSettings: {
 				categoryLabels,
