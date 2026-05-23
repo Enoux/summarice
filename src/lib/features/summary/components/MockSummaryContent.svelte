@@ -23,6 +23,7 @@
 		type: 'heading' | 'paragraph';
 		level?: number;
 		segments: Segment[];
+		categories: string[];
 	};
 
 	type Segment = {
@@ -31,6 +32,8 @@
 		ordinal?: number;
 		isFirst?: boolean;
 	};
+
+	const categories = ['Key Idea', 'Definition', 'Evidence', 'Question', 'Contradiction'];
 
 	function parseSegments(text: string): Segment[] {
 		const segments: Segment[] = [];
@@ -58,6 +61,7 @@
 		if (!source) return [];
 
 		const seenOrdinals = new Set<number>();
+		const block_categories: string[] = [];
 
 		return source
 			.split(/\n{2,}/)
@@ -74,10 +78,12 @@
 						segments: parseSegments(content).map(s => {
 							if (s.type === 'citation' && !seenOrdinals.has(s.ordinal!)) {
 								seenOrdinals.add(s.ordinal!);
+								block_categories.push(getHighlightByOrdinal(s.ordinal!)?.category_slot);
 								return { ...s, isFirst: true };
 							}
 							return s;
-						})
+						}),
+						categories: [...new Set(block_categories.filter( Boolean ).map((c) => {return categories[c-1]}))]
 					};
 				}
 
@@ -92,10 +98,12 @@
 					segments: parseSegments(content).map(s => {
 						if (s.type === 'citation' && !seenOrdinals.has(s.ordinal!)) {
 							seenOrdinals.add(s.ordinal!);
+							block_categories.push(getHighlightByOrdinal(s.ordinal!)?.category_slot);
 							return { ...s, isFirst: true };
 						}
 						return s;
-					})
+					}),
+					categories: [...new Set(block_categories.filter( Boolean ).map((c) => {return categories[c-1]}))]
 				};
 			});
 	});
@@ -173,26 +181,29 @@
 				</h3>
 			{/if}
 		{:else}
-			<p class="text-[15px] leading-relaxed text-foreground/80 font-normal">
-				{#each block.segments as segment}
-					{#if segment.type === 'citation'}
-						<CitationPill
-							id={(() => {
-								const highlight = getHighlightByOrdinal(segment.ordinal!);
-								if (!highlight?.id || !segment.isFirst) return undefined;
-								return `summary-citation-${highlight.id}`;
-							})()}
-							ordinal={segment.ordinal!}
-							highlight={getHighlightByOrdinal(segment.ordinal!)}
-							{viewerUtils}
-							{viewerColorMode}
-							{onJumpToHighlight}
-						/>
-					{:else}
-						{segment.content}
-					{/if}
-				{/each}
-			</p>
+			<div class="rounded-xl bg-muted p-4">
+				<h3 class="mb-2 text-xl font-bold">{block.categories.length == 2 ? block.categories.join(" & ") : block.categories.length > 2 ? block.categories.join(" , ") : block.categories}</h3>
+				<p class="text-[15px] leading-relaxed text-foreground/80 font-normal">
+					{#each block.segments as segment}
+						{#if segment.type === 'citation'}
+							<CitationPill
+								id={(() => {
+									const highlight = getHighlightByOrdinal(segment.ordinal!);
+									if (!highlight?.id || !segment.isFirst) return undefined;
+									return `summary-citation-${highlight.id}`;
+								})()}
+								ordinal={segment.ordinal!}
+								highlight={getHighlightByOrdinal(segment.ordinal!)}
+								{viewerUtils}
+								{viewerColorMode}
+								{onJumpToHighlight}
+							/>
+						{:else}
+							{segment.content}
+						{/if}
+					{/each}
+				</p>
+			</div>
 		{/if}
 	{/each}
 </div>
