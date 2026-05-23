@@ -477,12 +477,15 @@
 		if (!h.id || h.type !== 'area') return;
 		setHighlightBusy('explaining', h.id, true);
 		setHighlightActionError(h.id);
+		sidebarActiveTab = 'highlights';
+		selectHighlight(h, { updateHash: true, flash: false });
 
 		let highlight = h;
 		try {
 			const persisted = await (pendingHighlightPersists.get(h.id) ?? Promise.resolve(h));
 			highlight = highlightsStore.getHighlightById(persisted.id!) ?? persisted;
 			if (!highlight.id) return;
+			selectHighlight(highlight, { updateHash: true, flash: false });
 
 			const started = await createFigureInterpretation({ highlightId: highlight.id });
 
