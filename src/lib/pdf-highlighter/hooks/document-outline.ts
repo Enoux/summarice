@@ -1,5 +1,6 @@
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { PdfOutlineItemRaw, ProcessedOutlineItem } from '../types';
+import { pdfTopFromDestination } from '../lib/outline-destination';
 
 async function processOutlineItems(
 	pdfDocument: PDFDocumentProxy,
@@ -13,6 +14,7 @@ async function processOutlineItems(
 		const item = items[i];
 		if (!item) continue;
 		let pageNumber = 1;
+		let pdfTop: number | null = null;
 
 		if (item.dest) {
 			try {
@@ -20,9 +22,9 @@ async function processOutlineItems(
 					typeof item.dest === 'string' ? await pdfDocument.getDestination(item.dest) : item.dest;
 
 				if (dest && Array.isArray(dest) && dest[0]) {
-					// PDF.js destination ref — typed loosely across versions
 					const pageIndex = await pdfDocument.getPageIndex(dest[0] as never);
 					pageNumber = pageIndex + 1;
+					pdfTop = pdfTopFromDestination(dest);
 				}
 			} catch {
 				/* keep default */
@@ -39,6 +41,7 @@ async function processOutlineItems(
 			title: item.title,
 			pageNumber,
 			dest: item.dest,
+			pdfTop,
 			level,
 			bold: item.bold,
 			italic: item.italic,

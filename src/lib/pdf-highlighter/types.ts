@@ -262,6 +262,8 @@ export interface ProcessedOutlineItem {
 	title: string;
 	pageNumber: number;
 	dest: string | unknown[] | null;
+	/** PDF user-space Y from bookmark destination; null = page-top only. */
+	pdfTop: number | null;
 	level: number;
 	bold: boolean;
 	italic: boolean;
