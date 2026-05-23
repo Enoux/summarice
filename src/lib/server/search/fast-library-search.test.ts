@@ -14,7 +14,6 @@ import {
 	extractSummarySearchBlocks,
 	mergeMissingVectorCandidates,
 	mergeSemanticLane,
-	parseFastSearchQuery,
 	rankWithMmr,
 	removeDirectHighlightDuplicates,
 	reciprocalRankFusion,
@@ -75,7 +74,9 @@ function rawHighlightCandidate(
 		page_number: number;
 		kind: 'text' | 'area';
 		text: string | null;
+		comment: string | null;
 		annotation_preview: string | null;
+		ai_annotation_preview: string | null;
 		color: string;
 		embedding: number[] | string | null;
 		source: 'direct' | 'summary';
@@ -91,7 +92,9 @@ function rawHighlightCandidate(
 		page_number: 3,
 		kind: 'text',
 		text: 'direct retrieval text',
+		comment: null,
 		annotation_preview: null,
+		ai_annotation_preview: null,
 		color: '#facc15',
 		embedding: null,
 		source: 'direct',
@@ -118,39 +121,6 @@ function rawDocumentCandidate(
 		...overrides
 	};
 }
-
-describe('parseFastSearchQuery', () => {
-	it('extracts supported inline filters and leaves bare query text', () => {
-		const parsed = parseFastSearchQuery(
-			'doc:"Learning Notes" color:yellow has:note page:12-40 retrieval augmented'
-		);
-
-		expect(parsed).toEqual({
-			textQuery: 'retrieval augmented',
-			filters: {
-				documentTitle: 'Learning Notes',
-				color: '#facc15',
-				hasNote: true,
-				page: { start: 12, end: 40 }
-			}
-		});
-	});
-
-	it('keeps custom category label filters searchable', () => {
-		const parsed = parseFastSearchQuery('color:keyidea retrieval');
-
-		expect(parsed).toEqual({
-			textQuery: 'retrieval',
-			filters: { color: 'keyidea' }
-		});
-	});
-
-	it('rejects invalid page ranges with a user-safe parser error', () => {
-		expect(() => parseFastSearchQuery('page:40-12 transformers')).toThrow(
-			'Page filter start must be less than or equal to end'
-		);
-	});
-});
 
 describe('searchFastLibraryDirect', () => {
 	it('returns only direct highlight matches without logging telemetry', async () => {

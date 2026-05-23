@@ -2,11 +2,25 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { getLLMProvider } from '$lib/server/ai';
 import { configuredEmbeddingModel } from '$lib/server/embeddings/highlight-embedding-service';
 import { errorMessage } from '$lib/server/error-message';
-import { searchColorFilterValue } from '$lib/highlights/color-slots';
 import {
 	buildPartialExcludedTerms,
 	buildPartialSearchTerms
 } from '$lib/search/partial-search-terms';
+import {
+	type FastSearchClientTelemetry,
+	type FastSearchFilters,
+	type FastSearchResultScope,
+	type ParsedFastSearchQuery
+} from '$lib/search/fast-search-types';
+
+export {
+	FastSearchQueryError,
+	resolveFastSearchQuery,
+	type FastSearchFilters,
+	type FastSearchResultScope,
+	type PageFilter,
+	type ParsedFastSearchQuery
+} from '$lib/search/fast-search-types';
 
 const VECTOR_LIMIT = 50;
 const LEXICAL_LIMIT = 50;
@@ -18,23 +32,6 @@ const GROUPED_LANE_LIMIT = 4;
 const GROUPED_TOTAL_LIMIT = 12;
 const SEMANTIC_SIMILARITY_THRESHOLD = 0.75;
 const EMBEDDING_RETRY_ATTEMPTS = 3;
-
-export type PageFilter = {
-	start: number;
-	end: number;
-};
-
-export type FastSearchFilters = {
-	documentTitle?: string;
-	color?: string;
-	hasNote?: true;
-	page?: PageFilter;
-};
-
-export type ParsedFastSearchQuery = {
-	textQuery: string;
-	filters: FastSearchFilters;
-};
 
 export type SearchStageCounts = {
 	vector: number;
@@ -61,7 +58,9 @@ export type FastSearchHighlightResult = {
 	pageNumber: number;
 	highlightKind: 'text' | 'area';
 	text: string | null;
+	comment: string | null;
 	annotationPreview: string | null;
+	aiAnnotationPreview: string | null;
 	color: string;
 	score: number;
 	href: string;
@@ -102,13 +101,22 @@ export type FastSearchOptions = {
 	supabase: SupabaseClient;
 	ownerId: string;
 	rawQuery: string;
+	clientFilters?: FastSearchFilters;
+	resultScope?: FastSearchResultScope;
 };
 
-export class FastSearchQueryError extends Error {
-	constructor(message: string) {
-		super(message);
-		this.name = 'FastSearchQueryError';
-	}
+function getParsedFastSearchQuery(opts: FastSearchOptions): ParsedFastSearchQuery {
+	return {
+		textQuery: opts.rawQuery.trim().replace(/\s+/g, ' '),
+		filters: {}
+	};
+}
+
+function getClientTelemetry(opts: FastSearchOptions): FastSearchClientTelemetry {
+	return {
+		filters: opts.clientFilters ?? {},
+		resultScope: opts.resultScope ?? 'both'
+	};
 }
 
 type RankedId = {
@@ -142,7 +150,9 @@ type RawCandidate = {
 	page_number: number;
 	kind: 'text' | 'area';
 	text: string | null;
+	comment: string | null;
 	annotation_preview: string | null;
+	ai_annotation_preview: string | null;
 	color: string;
 	embedding: number[] | string | null;
 	source: 'direct' | 'summary';
@@ -165,7 +175,9 @@ type CandidateRecord = {
 	pageNumber: number;
 	kind: 'text' | 'area';
 	text: string | null;
+	comment: string | null;
 	annotationPreview: string | null;
+	aiAnnotationPreview: string | null;
 	color: string;
 	embedding: number[] | null;
 	source: 'direct' | 'summary' | 'semantic';
@@ -181,55 +193,6 @@ type QueryEmbeddingOptions = {
 	textQuery: string;
 	ownerId: string;
 };
-
-export function parseFastSearchQuery(rawQuery: string): ParsedFastSearchQuery {
-	const tokens = tokenizeQuery(rawQuery.trim());
-	const filters: FastSearchFilters = {};
-	const bareTerms: string[] = [];
-
-	for (const token of tokens) {
-		const separatorIndex = token.indexOf(':');
-		if (separatorIndex <= 0) {
-			bareTerms.push(token);
-			continue;
-		}
-
-		const key = token.slice(0, separatorIndex).toLowerCase();
-		const value = token.slice(separatorIndex + 1).trim();
-
-		if (key === 'doc') {
-			if (!value) throw new FastSearchQueryError('Document filter requires a title');
-			filters.documentTitle = value;
-			continue;
-		}
-
-		if (key === 'color') {
-			if (!value) throw new FastSearchQueryError('Color filter requires a value');
-			filters.color = searchColorFilterValue(value);
-			continue;
-		}
-
-		if (key === 'has') {
-			if (value.toLowerCase() !== 'note') {
-				throw new FastSearchQueryError('Only has:note is supported');
-			}
-			filters.hasNote = true;
-			continue;
-		}
-
-		if (key === 'page') {
-			filters.page = parsePageFilter(value);
-			continue;
-		}
-
-		bareTerms.push(token);
-	}
-
-	return {
-		textQuery: bareTerms.join(' ').replace(/\s+/g, ' ').trim(),
-		filters
-	};
-}
 
 export function reciprocalRankFusion(
 	vector: RankedId[],
@@ -341,8 +304,8 @@ export async function searchFastLibraryLexical(
 
 export async function searchFastLibraryDirect(opts: FastSearchOptions): Promise<FastSearchResponse> {
 	const startedAt = performance.now();
-	const parsed = parseFastSearchQuery(opts.rawQuery);
-	if (!parsed.textQuery && Object.keys(parsed.filters).length === 0) {
+	const parsed = getParsedFastSearchQuery(opts);
+	if (!parsed.textQuery) {
 		return buildEmptyResponse(parsed, startedAt);
 	}
 
@@ -381,9 +344,9 @@ export async function searchFastLibraryEnrichment(
 	previousResponse: FastSearchResponse
 ): Promise<FastSearchResponse> {
 	const startedAt = performance.now();
-	const parsed = parseFastSearchQuery(opts.rawQuery);
+	const parsed = getParsedFastSearchQuery(opts);
 
-	if (!parsed.textQuery && Object.keys(parsed.filters).length === 0) {
+	if (!parsed.textQuery) {
 		return previousResponse;
 	}
 
@@ -444,10 +407,16 @@ export async function searchFastLibrarySemantic(
 	lexicalResponse: FastSearchResponse
 ): Promise<FastSearchResponse> {
 	const startedAt = performance.now();
-	const parsed = parseFastSearchQuery(opts.rawQuery);
+	const parsed = getParsedFastSearchQuery(opts);
 
 	if (!parsed.textQuery) {
-		await logSearch(opts.supabase, opts.ownerId, opts.rawQuery, lexicalResponse.telemetry);
+		await logSearch(
+			opts.supabase,
+			opts.ownerId,
+			opts.rawQuery,
+			lexicalResponse.telemetry,
+			getClientTelemetry(opts)
+		);
 		return lexicalResponse;
 	}
 
@@ -480,7 +449,7 @@ export async function searchFastLibrarySemantic(
 			results
 		);
 
-		await logSearch(opts.supabase, opts.ownerId, opts.rawQuery, telemetry);
+		await logSearch(opts.supabase, opts.ownerId, opts.rawQuery, telemetry, getClientTelemetry(opts));
 
 		return { results, lanes, telemetry };
 	} catch (error) {
@@ -592,28 +561,6 @@ function isMarkdownListItem(line: string): boolean {
 	return /^\s*(?:[-*+]|\d+[.)])\s+/.test(line);
 }
 
-function tokenizeQuery(query: string): string[] {
-	const matches = query.match(/(?:[^\s"]+:"[^"]+"|[^\s"]+)/g);
-	if (!matches) return [];
-	return matches.map((token) => {
-		const separatorIndex = token.indexOf(':"');
-		if (separatorIndex <= 0) return token;
-		return `${token.slice(0, separatorIndex)}:${token.slice(separatorIndex + 2, -1)}`;
-	});
-}
-
-function parsePageFilter(value: string): PageFilter {
-	if (!value) throw new FastSearchQueryError('Page filter requires a page number');
-	const match = value.match(/^(\d+)(?:-(\d+))?$/);
-	if (!match) throw new FastSearchQueryError('Page filter must be page:12 or page:12-40');
-	const start = Number(match[1]);
-	const end = Number(match[2] ?? match[1]);
-	if (start < 1 || end < 1) throw new FastSearchQueryError('Page filter must be greater than zero');
-	if (start > end)
-		throw new FastSearchQueryError('Page filter start must be less than or equal to end');
-	return { start, end };
-}
-
 async function getQueryEmbedding(opts: QueryEmbeddingOptions): Promise<number[]> {
 	const provider = getLLMProvider();
 	const model = configuredEmbeddingModel();
@@ -656,11 +603,6 @@ async function fetchVectorCandidates(
 	const { data, error } = await supabase.rpc('fast_search_vector_candidates', {
 		p_owner_id: ownerId,
 		p_query_embedding: `[${embedding.join(',')}]`,
-		p_document_title: parsed.filters.documentTitle ?? null,
-		p_color: parsed.filters.color ?? null,
-		p_has_note: parsed.filters.hasNote ?? false,
-		p_page_start: parsed.filters.page?.start ?? null,
-		p_page_end: parsed.filters.page?.end ?? null,
 		p_limit: VECTOR_LIMIT
 	});
 
@@ -678,11 +620,6 @@ async function fetchDirectCandidates(
 	const { data, error } = await supabase.rpc('fast_search_direct_candidates', {
 		p_owner_id: ownerId,
 		p_text_query: parsed.textQuery,
-		p_document_title: parsed.filters.documentTitle ?? null,
-		p_color: parsed.filters.color ?? null,
-		p_has_note: parsed.filters.hasNote ?? false,
-		p_page_start: parsed.filters.page?.start ?? null,
-		p_page_end: parsed.filters.page?.end ?? null,
 		p_partial_terms: partialTerms,
 		p_partial_excluded: partialExcluded,
 		p_limit: LEXICAL_LIMIT
@@ -702,11 +639,6 @@ async function fetchLexicalCandidates(
 	const { data, error } = await supabase.rpc('fast_search_lexical_candidates', {
 		p_owner_id: ownerId,
 		p_text_query: parsed.textQuery,
-		p_document_title: parsed.filters.documentTitle ?? null,
-		p_color: parsed.filters.color ?? null,
-		p_has_note: parsed.filters.hasNote ?? false,
-		p_page_start: parsed.filters.page?.start ?? null,
-		p_page_end: parsed.filters.page?.end ?? null,
 		p_partial_terms: partialTerms,
 		p_partial_excluded: partialExcluded,
 		p_limit: LEXICAL_LIMIT
@@ -726,11 +658,6 @@ async function fetchSummaryCandidates(
 	const { data, error } = await supabase.rpc('fast_search_summary_candidates', {
 		p_owner_id: ownerId,
 		p_text_query: parsed.textQuery,
-		p_document_title: parsed.filters.documentTitle ?? null,
-		p_color: parsed.filters.color ?? null,
-		p_has_note: parsed.filters.hasNote ?? false,
-		p_page_start: parsed.filters.page?.start ?? null,
-		p_page_end: parsed.filters.page?.end ?? null,
 		p_partial_terms: partialTerms,
 		p_partial_excluded: partialExcluded,
 		p_limit: LEXICAL_LIMIT
@@ -750,7 +677,6 @@ async function fetchDocumentCandidates(
 	const { data, error } = await supabase.rpc('fast_search_document_candidates', {
 		p_owner_id: ownerId,
 		p_text_query: parsed.textQuery,
-		p_document_title: parsed.filters.documentTitle ?? null,
 		p_partial_terms: partialTerms,
 		p_partial_excluded: partialExcluded,
 		p_limit: LEXICAL_LIMIT
@@ -827,7 +753,9 @@ function buildCandidateRecords(
 					pageNumber: row.page_number,
 					kind: row.kind,
 					text: row.text,
+					comment: row.comment,
 					annotationPreview: row.annotation_preview,
+					aiAnnotationPreview: row.ai_annotation_preview,
 					color: row.color,
 					embedding: normalizeEmbedding(row.embedding),
 					source: row.source,
@@ -851,7 +779,9 @@ function rowToCandidateRecord(row: RawCandidate): CandidateRecord {
 		pageNumber: row.page_number,
 		kind: row.kind,
 		text: row.source === 'summary' ? row.summary_block : row.text,
+		comment: row.comment,
 		annotationPreview: row.annotation_preview,
+		aiAnnotationPreview: row.ai_annotation_preview,
 		color: row.color,
 		embedding: normalizeEmbedding(row.embedding),
 		source: row.source,
@@ -887,7 +817,9 @@ function shapeHighlightResult(
 		pageNumber: candidate.pageNumber,
 		highlightKind: candidate.kind,
 		text: candidate.text,
+		comment: candidate.comment,
 		annotationPreview: candidate.annotationPreview,
+		aiAnnotationPreview: candidate.aiAnnotationPreview,
 		color: candidate.color,
 		score: candidate.similarity ?? candidate.fusedScore,
 		href: `/doc/${candidate.documentId}#highlight-${candidate.highlightId}`
@@ -1019,13 +951,14 @@ async function logSearch(
 	supabase: SupabaseClient,
 	ownerId: string,
 	rawQuery: string,
-	telemetry: FastSearchTelemetry
+	telemetry: FastSearchTelemetry,
+	clientTelemetry: FastSearchClientTelemetry
 ): Promise<void> {
 	const { error } = await supabase.from('searches').insert({
 		owner_id: ownerId,
 		query: rawQuery,
 		text_query: telemetry.textQuery,
-		parsed_filters: telemetry.filters,
+		parsed_filters: clientTelemetry,
 		stage_counts: telemetry.stageCounts,
 		ordered_result_ids: telemetry.orderedResultIds,
 		latency_ms: telemetry.latencyMs

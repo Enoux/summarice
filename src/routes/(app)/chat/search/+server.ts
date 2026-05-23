@@ -1,6 +1,10 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { errorMessage } from '$lib/server/error-message';
 import {
+	readFastSearchFiltersFromJson,
+	readFastSearchResultScopeFromJson
+} from '$lib/search/fast-search-types';
+import {
 	FastSearchQueryError,
 	searchFastLibraryDirect,
 	searchFastLibraryEnrichment,
@@ -10,6 +14,8 @@ import {
 
 type FastSearchRequestBody = {
 	query?: unknown;
+	filters?: unknown;
+	resultScope?: unknown;
 	previousResponse?: unknown;
 	lexicalResponse?: unknown;
 };
@@ -37,10 +43,15 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 	try {
 		const url = new URL(request.url);
 		const stage = url.searchParams.get('stage');
+		const clientFilters =
+			body.filters === undefined ? {} : readFastSearchFiltersFromJson(body.filters) ?? {};
+		const resultScope = readFastSearchResultScopeFromJson(body.resultScope);
 		const baseOptions = {
 			supabase: locals.supabase,
 			ownerId: locals.user.id,
-			rawQuery: body.query
+			rawQuery: body.query,
+			clientFilters,
+			resultScope
 		};
 		const previousResponse = readOptionalPreviousResponse(body);
 		const response = await searchStage(stage, baseOptions, previousResponse);
