@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Button } from '$lib/components/ui/button';
 	import * as Popover from '$lib/components/ui/popover';
+	import FastLibrarySearch from '$lib/components/search/FastLibrarySearch.svelte';
 	import { LogOut, User, Settings, LayoutDashboard, Command, Sun, Moon } from '@lucide/svelte';
 	import { page } from '$app/state';
 	import { toggleMode, mode } from 'mode-watcher';
@@ -19,9 +20,9 @@
 >
 	<!-- Top Navbar -->
 	<header class="navbar-solid px-2 sm:px-6">
-		<div class="mx-auto flex h-full w-full items-center justify-between">
+		<div class="mx-auto grid h-full w-full grid-cols-[1fr_auto_1fr] items-center gap-2">
 			<!-- Left: Logo & Breadcrumb -->
-			<div class="flex items-center gap-2 pl-2.5">
+			<div class="flex min-w-0 items-center gap-2 justify-self-start pl-2.5">
 				<a href="/" class="flex items-center gap-2 text-muted-foreground/80 hover:text-foreground transition-colors">
 					<Command class="h-3.5 w-3.5" />
 					{#if !page.url.pathname.startsWith('/doc')}
@@ -54,8 +55,12 @@
 				</div>
 			</div>
 
+			<div class="relative z-0 flex justify-self-center overflow-visible">
+				<FastLibrarySearch />
+			</div>
+
 			<!-- Right: User Account -->
-			<div class="flex items-center gap-4">
+			<div class="flex items-center justify-self-end gap-4">
 				<Popover.Root>
 					<Popover.Trigger
 						class="flex items-center gap-3 rounded-lg py-1 transition-colors hover:bg-muted/50"
