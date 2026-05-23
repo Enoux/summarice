@@ -1,9 +1,8 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { Search } from '@lucide/svelte';
+	import { Loader2, Search, X } from '@lucide/svelte';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Separator } from '$lib/components/ui/separator';
-	import { Skeleton } from '$lib/components/ui/skeleton';
 	import { cn } from '$lib/utils.js';
 
 	type FastSearchResult =
@@ -64,8 +63,10 @@
 	let lanes = $state<FastSearchLane[]>([]);
 	let highlightedIndex = $state(0);
 	let isSearching = $state(false);
+	let isEnrichmentSearching = $state(false);
 	let isSemanticSearching = $state(false);
 	let error = $state<string | null>(null);
+	let enrichmentError = $state<string | null>(null);
 	let semanticError = $state<string | null>(null);
 	let completedQuery = $state<string | null>(null);
 	let abortController: AbortController | null = null;
@@ -74,12 +75,15 @@
 	const trimmedQuery = $derived(query.trim());
 	const results = $derived(lanes.flatMap((lane) => lane.results));
 	const visibleLanes = $derived(lanes.filter((lane) => lane.results.length > 0));
+	const isSearchCycleActive = $derived(
+		isSearching || isEnrichmentSearching || isSemanticSearching
+	);
 	const hasEmptyResults = $derived(
 		Boolean(trimmedQuery) &&
 			completedQuery === trimmedQuery &&
-			!isSearching &&
-			!isSemanticSearching &&
+			!isSearchCycleActive &&
 			!error &&
+			!enrichmentError &&
 			!semanticError &&
 			results.length === 0
 	);
@@ -87,13 +91,12 @@
 		Boolean(trimmedQuery) &&
 			(results.length > 0 ||
 				hasEmptyResults ||
-				Boolean(error) ||
-				Boolean(semanticError) ||
-				isSearching ||
-				isSemanticSearching)
+				(!isSearchCycleActive &&
+					(Boolean(error) || Boolean(enrichmentError) || Boolean(semanticError))))
 	);
 
-	const searchUrl = $derived(`${searchBasePath}/search`);
+	const directSearchUrl = $derived(`${searchBasePath}/search?stage=direct`);
+	const enrichmentSearchUrl = $derived(`${searchBasePath}/search?stage=enrichment`);
 	const semanticSearchUrl = $derived(`${searchBasePath}/search?stage=semantic`);
 
 	function cancelDebouncedSearch(): void {
@@ -107,10 +110,19 @@
 		abortController?.abort();
 		lanes = [];
 		error = null;
+		enrichmentError = null;
 		semanticError = null;
 		isSearching = false;
+		isEnrichmentSearching = false;
 		isSemanticSearching = false;
 		completedQuery = null;
+	}
+
+	function clearSearch(): void {
+		cancelDebouncedSearch();
+		query = '';
+		clearSearchState();
+		highlightedIndex = 0;
 	}
 
 	function scheduleDebouncedSearch(): void {
@@ -158,36 +170,62 @@
 		abortController = controller;
 
 		isSearching = true;
+		isEnrichmentSearching = false;
 		isSemanticSearching = false;
 		error = null;
+		enrichmentError = null;
 		semanticError = null;
 		completedQuery = null;
 
 		try {
-			const lexicalResponse = await fetchSearch(searchUrl, currentQuery, controller, null);
+			const directResponse = await fetchSearch(directSearchUrl, currentQuery, controller, null);
 
-			lanes = normalizeLanes(lexicalResponse);
+			lanes = normalizeLanes(directResponse);
 			highlightedIndex = 0;
 			completedQuery = currentQuery;
 			isSearching = false;
-			isSemanticSearching = true;
+			isEnrichmentSearching = true;
 
 			try {
-				const semanticResponse = await fetchSearch(
-					semanticSearchUrl,
+				const enrichmentResponse = await fetchSearch(
+					enrichmentSearchUrl,
 					currentQuery,
 					controller,
-					lexicalResponse
+					directResponse
 				);
 
-				lanes = normalizeLanes(semanticResponse);
+				lanes = normalizeLanes(enrichmentResponse);
 				const merged = lanes.flatMap((lane) => lane.results);
 				highlightedIndex = Math.min(highlightedIndex, Math.max(merged.length - 1, 0));
 				completedQuery = currentQuery;
+
+				isEnrichmentSearching = false;
+				isSemanticSearching = true;
+
+				try {
+					const semanticResponse = await fetchSearch(
+						semanticSearchUrl,
+						currentQuery,
+						controller,
+						enrichmentResponse
+					);
+
+					lanes = normalizeLanes(semanticResponse);
+					const semanticMerged = lanes.flatMap((lane) => lane.results);
+					highlightedIndex = Math.min(
+						highlightedIndex,
+						Math.max(semanticMerged.length - 1, 0)
+					);
+					completedQuery = currentQuery;
+				} catch (searchError) {
+					if (controller.signal.aborted) return;
+					void searchError;
+					semanticError = 'Related ideas are unavailable.';
+				}
 			} catch (searchError) {
 				if (controller.signal.aborted) return;
 				void searchError;
-				semanticError = 'Related ideas are unavailable.';
+				enrichmentError = 'More matches are unavailable.';
 			}
 		} catch (searchError) {
 			if (controller.signal.aborted) return;
@@ -197,6 +235,7 @@
 		} finally {
 			if (!controller.signal.aborted) {
 				isSearching = false;
+				isEnrichmentSearching = false;
 				isSemanticSearching = false;
 			}
 		}
@@ -206,12 +245,12 @@
 		url: string,
 		currentQuery: string,
 		controller: AbortController,
-		lexicalResponse: FastSearchResponse | null
+		previousResponse: FastSearchResponse | null
 	): Promise<FastSearchResponse> {
 		const response = await fetch(url, {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ query: currentQuery, lexicalResponse }),
+			body: JSON.stringify({ query: currentQuery, previousResponse }),
 			signal: controller.signal
 		});
 		const payload = (await response.json()) as FastSearchResponse | { error?: string };
@@ -288,21 +327,6 @@
 	}
 </script>
 
-{#snippet searchSkeletonRows(rowCount: number)}
-	<div class="space-y-3 px-2 py-3" aria-live="polite">
-		{#each Array.from({ length: rowCount }, (_, index) => index) as skeletonIndex (skeletonIndex)}
-			<div class="flex gap-3 rounded-lg px-2 py-2">
-				<Skeleton class="h-12 w-1 shrink-0 rounded-full" />
-				<div class="min-w-0 flex-1 space-y-2 py-0.5">
-					<Skeleton class="h-4 w-[72%]" />
-					<Skeleton class="h-3.5 w-full" />
-					<Skeleton class="h-3 w-[88%]" />
-				</div>
-			</div>
-		{/each}
-	</div>
-{/snippet}
-
 <div class={cn('w-full text-foreground', className)}>
 	<div class="mb-4 flex justify-center">
 		<div
@@ -341,9 +365,25 @@
 				aria-label="Search your library"
 				aria-autocomplete="list"
 				aria-expanded={hasDropdown}
+				aria-busy={isSearchCycleActive}
 				autocomplete="off"
 				spellcheck="false"
 			/>
+			{#if isSearchCycleActive}
+				<Loader2
+					class="size-5 shrink-0 animate-spin text-muted-foreground"
+					aria-hidden="true"
+				/>
+			{:else if trimmedQuery}
+				<button
+					type="button"
+					class="shrink-0 rounded-md p-0.5 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+					aria-label="Clear search"
+					onclick={clearSearch}
+				>
+					<X class="size-5" aria-hidden="true" />
+				</button>
+			{/if}
 		</div>
 
 		{#if hasDropdown}
@@ -358,9 +398,7 @@
 							role="listbox"
 							aria-label="Search results"
 						>
-							{#if isSearching}
-								{@render searchSkeletonRows(3)}
-							{:else if error}
+							{#if error}
 								<div class="px-3 py-4 text-sm text-destructive" role="alert">{error}</div>
 							{:else if hasEmptyResults}
 								<div class="px-3 py-4 text-sm text-muted-foreground">
@@ -427,9 +465,8 @@
 										{/each}
 									</div>
 								{/each}
-								{#if isSemanticSearching}
-									<Separator class="my-2" />
-									{@render searchSkeletonRows(2)}
+								{#if enrichmentError}
+									<div class="px-3 py-2 text-xs text-muted-foreground">{enrichmentError}</div>
 								{/if}
 								{#if semanticError}
 									<div class="px-3 py-2 text-xs text-muted-foreground">{semanticError}</div>
