@@ -25,8 +25,10 @@
 
 	let thumbnails = new SvelteMap<number, ThumbnailData>();
 	let rootEl: HTMLDivElement | null = $state(null);
+	let scrollTargetPage = $state(1);
 
 	const totalPages = $derived(pdfDocument.numPages);
+	const THUMB_AUTOSCROLL_DEBOUNCE_MS = 300;
 
 	async function ensureThumbnail(pageNumber: number) {
 		const existing = thumbnails.get(pageNumber);
@@ -65,10 +67,18 @@
 	});
 
 	$effect(() => {
-		if (!scrollReady || !rootEl || currentPage < 1 || currentPage > totalPages) return;
+		const page = currentPage;
+		const timeout = setTimeout(() => {
+			scrollTargetPage = page;
+		}, THUMB_AUTOSCROLL_DEBOUNCE_MS);
+		return () => clearTimeout(timeout);
+	});
+
+	$effect(() => {
+		if (!scrollReady || !rootEl || scrollTargetPage < 1 || scrollTargetPage > totalPages) return;
 
 		const activeEl = rootEl.querySelector(
-			`[data-thumb-page="${currentPage}"]`
+			`[data-thumb-page="${scrollTargetPage}"]`
 		) as HTMLElement | null;
 		if (!activeEl) return;
 
