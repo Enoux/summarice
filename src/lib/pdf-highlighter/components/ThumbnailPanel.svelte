@@ -5,15 +5,23 @@
 	import ThumbnailItem from './ThumbnailItem.svelte';
 	import { onMount } from 'svelte';
 	import { SvelteMap } from 'svelte/reactivity';
+	import { cn } from '$lib/utils';
 
 	interface Props {
 		pdfDocument: PDFDocumentProxy;
 		currentPage: number;
 		onPageSelect: (pageNumber: number) => void;
+		scrollReady?: boolean;
 		thumbnailWidth?: number;
 	}
 
-	let { pdfDocument, currentPage, onPageSelect, thumbnailWidth = 180 }: Props = $props();
+	let {
+		pdfDocument,
+		currentPage,
+		onPageSelect,
+		scrollReady = true,
+		thumbnailWidth = 180
+	}: Props = $props();
 
 	let thumbnails = new SvelteMap<number, ThumbnailData>();
 	let rootEl: HTMLDivElement | null = $state(null);
@@ -55,11 +63,37 @@
 		void currentPage;
 		void ensureThumbnail(currentPage);
 	});
+
+	$effect(() => {
+		if (!scrollReady || !rootEl || currentPage < 1 || currentPage > totalPages) return;
+
+		const activeEl = rootEl.querySelector(
+			`[data-thumb-page="${currentPage}"]`
+		) as HTMLElement | null;
+		if (!activeEl) return;
+
+		const parentRect = rootEl.getBoundingClientRect();
+		const activeRect = activeEl.getBoundingClientRect();
+
+		const isVisible =
+			activeRect.top >= parentRect.top + 40 &&
+			activeRect.bottom <= parentRect.bottom - 40;
+
+		if (!isVisible) {
+			activeEl.scrollIntoView({
+				behavior: 'smooth',
+				block: 'nearest'
+			});
+		}
+	});
 </script>
 
 <div
 	bind:this={rootEl}
-	class="minimal-scrollbar min-h-0 flex-1 space-y-2 overflow-y-auto px-2 py-2"
+	class={cn(
+		'min-h-0 flex-1 space-y-2 px-2 py-2',
+		scrollReady ? 'minimal-scrollbar overflow-y-auto' : 'overflow-hidden'
+	)}
 	onscroll={onScroll}
 >
 	{#if totalPages === 0}

@@ -2,22 +2,45 @@
 	import type { PDFDocumentProxy } from 'pdfjs-dist';
 	import type { LeftPanelTab, ProcessedOutlineItem } from '$lib/pdf-highlighter/types';
 	import { loadDocumentOutline } from '$lib/pdf-highlighter/hooks/document-outline';
+	import {
+		cssPxToPdfUnits,
+		OUTLINE_READING_LINE_OFFSET_PX,
+		type OutlineViewLocation
+	} from '$lib/pdf-highlighter/lib/outline-active-item';
 	import DocumentOutline from './DocumentOutline.svelte';
 	import ThumbnailPanel from './ThumbnailPanel.svelte';
 	import { ChevronRight, FileText, List } from '@lucide/svelte';
 	import { cn } from '$lib/utils';
 
+	type PdfViewerLocation = {
+		pageNumber: number;
+		top: number;
+		left: number;
+	};
+
+	type ViewerEventBus = {
+		on: (
+			ev: string,
+			fn: (e: { pageNumber?: number; location?: PdfViewerLocation }) => void
+		) => void;
+		off: (
+			ev: string,
+			fn: (e: { pageNumber?: number; location?: PdfViewerLocation }) => void
+		) => void;
+	};
+
+	type PdfViewerApplication = {
+		container?: HTMLElement;
+		pdfViewer?: { _location?: PdfViewerLocation };
+		getPageView?: (pageIndex: number) => { viewport?: { scale: number } } | undefined;
+	};
+
 	interface Props {
 		pdfDocument: PDFDocumentProxy;
 		goToPage: (pageNumber: number) => void;
-		getEventBus?: () =>
-			| {
-					on: (ev: string, fn: (e: { pageNumber: number }) => void) => void;
-					off: (ev: string, fn: (e: { pageNumber: number }) => void) => void;
-			  }
-			| unknown
-			| undefined;
-		getViewer?: () => any;
+		goToDestination?: (dest: string | unknown[]) => void;
+		getEventBus?: () => ViewerEventBus | unknown | undefined;
+		getViewer?: () => PdfViewerApplication | unknown | undefined;
 		isOpen?: boolean;
 		onOpenChange?: (open: boolean) => void;
 		width?: number;
@@ -31,6 +54,7 @@
 	let {
 		pdfDocument,
 		goToPage,
+		goToDestination,
 		getEventBus,
 		getViewer,
 		isOpen: controlledOpen,
@@ -47,15 +71,37 @@
 	let activeTab = $state<LeftPanelTab>('thumbnails');
 	let outline = $state<ProcessedOutlineItem[] | null>(null);
 	let outlineLoading = $state(true);
-	let currentPage = $state(1);
+	let viewLocation = $state<OutlineViewLocation>({ pageNumber: 1, top: 0, left: 0 });
 	let lastNavigatedId = $state<string | null>(null);
+	let userInitiatedScroll = $state(false);
+	let panelScrollReady = $state(false);
 	let tabInitialized = false;
 
 	const isOpen = $derived(controlledOpen ?? internalOpen);
+	const currentPage = $derived(viewLocation.pageNumber);
+
+	const readingOffsetPdf = $derived.by(() => {
+		const viewer = getViewer?.() as PdfViewerApplication | undefined;
+		const pageView = viewer?.getPageView?.(viewLocation.pageNumber - 1);
+		const scale = pageView?.viewport?.scale;
+		if (typeof scale !== 'number') {
+			return 0;
+		}
+		return cssPxToPdfUnits(OUTLINE_READING_LINE_OFFSET_PX, scale);
+	});
 
 	function setOpen(open: boolean) {
 		if (onOpenChange) onOpenChange(open);
 		else internalOpen = open;
+	}
+
+	function applyViewerLocation(location: PdfViewerLocation | undefined) {
+		if (!location?.pageNumber) return;
+		viewLocation = {
+			pageNumber: location.pageNumber,
+			top: location.top ?? 0,
+			left: location.left ?? 0
+		};
 	}
 
 	$effect(() => {
@@ -80,33 +126,42 @@
 	});
 
 	$effect(() => {
-		const bus = getEventBus?.() as any;
-		const viewer = getViewer?.() as any;
+		const bus = getEventBus?.() as ViewerEventBus | undefined;
+		const viewer = getViewer?.() as PdfViewerApplication | undefined;
 		if (!bus) return;
 
-		const handlePageChange = (e: { pageNumber: number }) => {
-			currentPage = e.pageNumber;
-		};
-
-		const handleViewUpdate = (e: { location: { pageNumber: number } }) => {
-			if (e.location?.pageNumber) {
-				currentPage = e.location.pageNumber;
+		const handlePageChange = (e: { pageNumber?: number }) => {
+			if (e.pageNumber) {
+				viewLocation = { ...viewLocation, pageNumber: e.pageNumber };
 			}
 		};
 
-		// Also listen to direct scroll events for high-frequency updates
+		const handleViewUpdate = (e: { location?: PdfViewerLocation }) => {
+			applyViewerLocation(e.location);
+		};
+
 		const handleScroll = () => {
-			if (viewer?.pdfViewer?._location?.pageNumber) {
-				currentPage = viewer.pdfViewer._location.pageNumber;
+			if (lastNavigatedId && userInitiatedScroll) {
+				lastNavigatedId = null;
+				userInitiatedScroll = false;
 			}
+			applyViewerLocation(viewer?.pdfViewer?._location);
+		};
+
+		const markUserScroll = () => {
+			userInitiatedScroll = true;
 		};
 
 		bus.on('pagechanging', handlePageChange);
 		bus.on('updateviewarea', handleViewUpdate);
-		
+
 		const scrollContainer = viewer?.container;
 		if (scrollContainer) {
-			scrollContainer.addEventListener('scroll', handleScroll, { passive: true });	
+			scrollContainer.addEventListener('scroll', handleScroll, { passive: true });
+			scrollContainer.addEventListener('wheel', markUserScroll, { passive: true });
+			scrollContainer.addEventListener('touchstart', markUserScroll, { passive: true });
+			scrollContainer.addEventListener('pointerdown', markUserScroll);
+			scrollContainer.addEventListener('keydown', markUserScroll);
 		}
 
 		return () => {
@@ -114,29 +169,55 @@
 			bus.off('updateviewarea', handleViewUpdate);
 			if (scrollContainer) {
 				scrollContainer.removeEventListener('scroll', handleScroll);
+				scrollContainer.removeEventListener('wheel', markUserScroll);
+				scrollContainer.removeEventListener('touchstart', markUserScroll);
+				scrollContainer.removeEventListener('pointerdown', markUserScroll);
+				scrollContainer.removeEventListener('keydown', markUserScroll);
 			}
 		};
 	});
 
 	function handlePageSelect(pageNumber: number) {
 		goToPage(pageNumber);
-		currentPage = pageNumber;
+		viewLocation = { ...viewLocation, pageNumber };
 		onPageSelect?.(pageNumber);
 	}
 
 	function handleOutlineNavigate(item: ProcessedOutlineItem) {
-		goToPage(item.pageNumber);
-		currentPage = item.pageNumber;
+		if (item.dest && goToDestination) {
+			goToDestination(item.dest);
+		} else {
+			goToPage(item.pageNumber);
+		}
 		lastNavigatedId = item.id;
+		viewLocation = { ...viewLocation, pageNumber: item.pageNumber };
 	}
 
 	function setTab(tab: LeftPanelTab) {
 		activeTab = tab;
 		onTabChange?.(tab);
 	}
+
+	function handlePanelTransitionEnd(event: TransitionEvent) {
+		if (event.propertyName !== 'width' || !isOpen) return;
+		panelScrollReady = true;
+	}
+
+	$effect(() => {
+		if (!isOpen) {
+			panelScrollReady = false;
+			return;
+		}
+		panelScrollReady = false;
+		const fallback = setTimeout(() => {
+			if (isOpen) panelScrollReady = true;
+		}, 220);
+		return () => clearTimeout(fallback);
+	});
 </script>
 
 <div
+	ontransitionend={handlePanelTransitionEnd}
 	class="relative flex h-full shrink-0 flex-col border-r border-[var(--lp-border)] bg-[var(--lp-bg)] transition-[width] duration-200"
 	style:width={isOpen ? `${width}px` : showCollapsedRail ? `${collapsedWidth}px` : '0px'}
 	style:min-width={isOpen ? `${width}px` : showCollapsedRail ? `${collapsedWidth}px` : '0px'}
@@ -186,12 +267,20 @@
 					<DocumentOutline
 						{outline}
 						isLoading={outlineLoading}
+						{viewLocation}
+						{readingOffsetPdf}
 						{currentPage}
 						{lastNavigatedId}
+						scrollReady={panelScrollReady}
 						onNavigate={handleOutlineNavigate}
 					/>
 				{:else}
-					<ThumbnailPanel {pdfDocument} {currentPage} onPageSelect={handlePageSelect} />
+					<ThumbnailPanel
+						{pdfDocument}
+						{currentPage}
+						scrollReady={panelScrollReady}
+						onPageSelect={handlePageSelect}
+					/>
 				{/if}
 			</div>
 

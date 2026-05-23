@@ -804,6 +804,10 @@
 				}
 			}
 		},
+		goToDestination: function (dest: string | unknown[]) {
+			if (!linkServiceRef) return;
+			void linkServiceRef.goToDestination(dest);
+		},
 		getViewer: () => viewerRef,
 		getEventBus: () => eventBusRef,
 		viewerTheme: resolvedTheme,

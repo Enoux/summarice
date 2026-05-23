@@ -310,6 +310,7 @@ export type PdfHighlighterUtils = {
 	textSelectionDelay: number;
 
 	goToPage(pageNumber: number): void;
+	goToDestination(dest: string | unknown[]): void;
 	getViewer(): unknown;
 	getEventBus(): unknown;
 	/** Resolved viewer chrome theme (for header / tooling) */

@@ -679,6 +679,7 @@
 							<LeftPanel
 								{pdfDocument}
 								goToPage={(n) => pdfHighlighterUtils.goToPage?.(n)}
+								goToDestination={(dest) => pdfHighlighterUtils.goToDestination?.(dest)}
 								getEventBus={() =>
 									pdfHighlighterUtils.getEventBus?.() as ViewerEventBus | undefined}
 								getViewer={() => pdfHighlighterUtils.getViewer?.()}
