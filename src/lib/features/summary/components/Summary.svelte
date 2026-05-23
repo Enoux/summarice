@@ -2,8 +2,7 @@
 	import { page } from '$app/state';
 	import { AlertCircle, FileText, LoaderCircle, RotateCcw, Sparkles, History, Star, CheckCircle2 } from '@lucide/svelte';
 import type { CommentedHighlight, PdfHighlighterUtils } from '$lib/pdf-highlighter';
-	import MockSummaryContent from './MockSummaryContent.svelte';
-	import { ScrollArea } from '$lib/components/ui/scroll-area/index.js';
+	import SummaryContent from './SummaryContent.svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import * as Popover from '$lib/components/ui/popover';
@@ -440,69 +439,6 @@ import type { CommentedHighlight, PdfHighlighterUtils } from '$lib/pdf-highlight
 
 <div class="flex h-full min-h-0 flex-col bg-card/50">
 	<header class="flex flex-col gap-4 border-b bg-background/80 px-4 py-5 backdrop-blur-md">
-		<div class="flex items-start justify-between gap-4">
-			<div class="space-y-1">
-				<h2 class="text-lg font-bold tracking-tight">Summary</h2>
-				<p class="text-xs text-muted-foreground leading-relaxed max-w-[200px]">
-					Grounded analysis of your document based on highlights.
-				</p>
-			</div>
-
-			{#if hasAnySummary}
-				<div class="flex flex-col shrink-0 items-center gap-2">
-					<Button
-						size="sm"
-						class="h-9 gap-2 shadow-sm font-semibold w-35"
-						onclick={generateSummary}
-						disabled={isGenerating || isSubmitting}
-					>
-						{#if isGenerating}
-							<LoaderCircle class="size-3.5 animate-spin" />
-						{:else}
-							<RotateCcw class="size-3.5" />
-						{/if}
-						Regenerate
-					</Button>
-
-					<Popover.Root>
-						<Popover.Trigger>
-							<Button 
-								variant="outline"
-								size="sm"
-								class="h-9 gap-2 shadow-sm font-semibold w-35"
-								disabled={isGenerating || isSubmitting}
-							>
-								{#if isGenerating || isSubmitting}
-									<LoaderCircle class="size-3.5 animate-spin" />
-								{:else}
-									<Star class="size-3.5" />
-								{/if}
-								Rate Summary
-							</Button>
-						</Popover.Trigger>
-						<Popover.Content class="w-64 p-3" align="end">
-							<div class="flex justify-center items-center">
-								<StarRating bind:value={rating} />
-							</div>
-
-							<div class="flex flex-wrap gap-2">
-								{#each comments as comment}
-									<PillRating comment={comment} onToggle={handleToggle}/>
-								{/each}
-							</div>
-
-							<Button 
-								size="sm" type="submit" class="h-9 gap-2 shadow-sm font-semibold"
-								onclick={submitFeedback}
-							>
-								Submit
-							</Button>
-						</Popover.Content>
-					</Popover.Root>
-				</div>
-			{/if}
-		</div>
-
 		<div class="flex items-center gap-3">
 			{#if sortedSummaries.length > 0}
 				<div class="flex flex-1 items-center gap-2">
@@ -535,9 +471,65 @@ import type { CommentedHighlight, PdfHighlighterUtils } from '$lib/pdf-highlight
 				</div>
 			{/if}
 		</div>
+
+		{#if hasAnySummary}
+			<div class="summary-actions">
+				<div class="summary-action-buttons">
+					<Button
+						size="sm"
+						class="h-9 gap-2 shadow-sm font-semibold"
+						onclick={generateSummary}
+						disabled={isGenerating || isSubmitting}
+					>
+						{#if isGenerating}
+							<LoaderCircle class="size-3.5 animate-spin" />
+						{:else}
+							<RotateCcw class="size-3.5" />
+						{/if}
+						Regenerate
+					</Button>
+
+					<Popover.Root>
+						<Popover.Trigger>
+							<Button
+								variant="outline"
+								size="sm"
+								class="h-9 gap-2 shadow-sm font-semibold"
+								disabled={isGenerating || isSubmitting}
+							>
+								{#if isGenerating || isSubmitting}
+									<LoaderCircle class="size-3.5 animate-spin" />
+								{:else}
+									<Star class="size-3.5" />
+								{/if}
+								Rate Summary
+							</Button>
+						</Popover.Trigger>
+						<Popover.Content class="w-64 p-3" align="end">
+							<div class="flex justify-center items-center">
+								<StarRating bind:value={rating} />
+							</div>
+
+							<div class="flex flex-wrap gap-2">
+								{#each comments as comment}
+									<PillRating comment={comment} onToggle={handleToggle}/>
+								{/each}
+							</div>
+
+							<Button
+								size="sm" type="submit" class="h-9 gap-2 shadow-sm font-semibold"
+								onclick={submitFeedback}
+							>
+								Submit
+							</Button>
+						</Popover.Content>
+					</Popover.Root>
+				</div>
+			</div>
+		{/if}
 	</header>
 
-	<ScrollArea class="min-h-0 flex-1" orientation="vertical">
+	<div class="minimal-scrollbar min-h-0 flex-1 overflow-y-auto">
 		<div class="px-5 py-6">
 			{#if isLoading}
 				<div class="flex flex-col items-center justify-center py-20 text-center space-y-4">
@@ -629,7 +621,7 @@ import type { CommentedHighlight, PdfHighlighterUtils } from '$lib/pdf-highlight
 					</div>
 				{/if}
 
-				<MockSummaryContent
+				<SummaryContent
 					markdown={activeSummary.markdown}
 					{highlights}
 					{viewerUtils}
@@ -657,8 +649,8 @@ import type { CommentedHighlight, PdfHighlighterUtils } from '$lib/pdf-highlight
 					<div class="mt-14 border-t border-border pt-8 pb-4">
 						<div class="grid grid-cols-1 gap-8">
 							{#if activeSummary.tags.length > 0}
-								<div class="space-y-3">
-									<span class="text-[10px] font-bold tracking-widest text-muted-foreground uppercase opacity-70">
+								<div class="flex flex-col gap-4">
+									<span class="block text-[10px] font-bold tracking-widest text-muted-foreground uppercase opacity-70">
 										Themes
 									</span>
 									<div class="flex flex-wrap gap-2">
@@ -671,8 +663,8 @@ import type { CommentedHighlight, PdfHighlighterUtils } from '$lib/pdf-highlight
 								</div>
 							{/if}
 							{#if activeSummary.entities.length > 0}
-								<div class="space-y-3">
-									<span class="text-[10px] font-bold tracking-widest text-muted-foreground uppercase opacity-70">
+								<div class="flex flex-col gap-4">
+									<span class="block text-[10px] font-bold tracking-widest text-muted-foreground uppercase opacity-70">
 										Key Entities
 									</span>
 									<div class="flex flex-wrap gap-2">
@@ -694,9 +686,42 @@ import type { CommentedHighlight, PdfHighlighterUtils } from '$lib/pdf-highlight
 				</div>
 			{/if}
 		</div>
-	</ScrollArea>
+	</div>
 </div>
 
 <style>
-	/* Custom scrollbar handling if needed, though ScrollArea handles most of it */
+	.summary-actions {
+		container-type: inline-size;
+		width: 100%;
+	}
+
+	.summary-action-buttons {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		width: 100%;
+	}
+
+	.summary-action-buttons > :global(*) {
+		width: 100%;
+	}
+
+	.summary-action-buttons :global(button) {
+		width: 100%;
+	}
+
+	@container (min-width: 18rem) {
+		.summary-action-buttons {
+			flex-direction: row;
+			width: fit-content;
+		}
+
+		.summary-action-buttons > :global(*) {
+			width: auto;
+		}
+
+		.summary-action-buttons :global(button) {
+			width: 8.75rem;
+		}
+	}
 </style>
