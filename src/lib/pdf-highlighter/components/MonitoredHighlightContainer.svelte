@@ -45,6 +45,12 @@
 		HOVER_TIP_LEAVE_EVENT,
 		TIP_CONTAINER_SELECTOR
 	} from '$lib/pdf-highlighter/lib/tip-hover-contract';
+	import {
+		buildBridgePolygon,
+		createHoverBridgeTracker,
+		domRectToBridgeRect,
+		type BridgeRect
+	} from '$lib/ui/hover-bridge-geometry';
 
 	/**
 	 * A container for a highlight component that monitors whether a mouse is over a
@@ -62,11 +68,9 @@
 		pdfHighlighterUtils
 	}: MonitoredHighlightContainerProps = $props();
 
-	//const { isEditingOrHighlighting } = pdfHighlighterUtils;
-	//let tipContainerState = setContext('tipContainerState', highlightTip);
 	const DEBUG_HOVER_BRIDGE = false;
-	let bridgePointerMove: ((event: PointerEvent) => void) | null = null;
-	let bridgeShouldStayOpen: ((x: number, y: number) => boolean) | null = null;
+	const BRIDGE_GAP = 10;
+	let highlightContainerEl = $state<HTMLElement | null>(null);
 	let debugBridgePoints = $state<string | null>(null);
 	let debugHighlightBody = $state<{ left: number; top: number; width: number; height: number } | null>(
 		null
@@ -81,18 +85,7 @@
 		)
 	);
 
-	function stopBridgeTracking() {
-		if (bridgePointerMove) {
-			document.removeEventListener('pointermove', bridgePointerMove);
-			bridgePointerMove = null;
-		}
-		bridgeShouldStayOpen = null;
-		debugBridgePoints = null;
-		debugHighlightBody = null;
-		debugTipBody = null;
-	}
-
-	function getHighlightBodyRect(container: HTMLElement) {
+	function getHighlightBodyRect(container: HTMLElement): BridgeRect | null {
 		const parts = Array.from(
 			container.querySelectorAll<HTMLElement>('.TextHighlight__part, .AreaHighlight')
 		);
@@ -110,116 +103,69 @@
 		};
 	}
 
-	function buildBridgePolygon(
-		highlightRect: { left: number; right: number; top: number; bottom: number },
-		tipRect: DOMRect
-	) {
-		const gap = 10;
-		const tipAbove = tipRect.bottom <= highlightRect.top;
-		const highlightEdgeY = tipAbove ? highlightRect.top : highlightRect.bottom;
-		const tipEdgeY = tipAbove ? tipRect.bottom : tipRect.top;
-		return [
-			{ x: highlightRect.left - gap, y: highlightEdgeY },
-			{ x: highlightRect.right + gap, y: highlightEdgeY },
-			{ x: tipRect.right + gap, y: tipEdgeY },
-			{ x: tipRect.left - gap, y: tipEdgeY }
-		];
+	function exitBridge() {
+		pdfHighlighterUtils.setTip?.({ show: false });
+		onMouseLeave?.();
 	}
 
-	function pointInPolygon(point: { x: number; y: number }, polygon: { x: number; y: number }[]) {
-		let inside = false;
-		for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-			const pi = polygon[i];
-			const pj = polygon[j];
-			const intersects =
-				pi.y > point.y !== pj.y > point.y &&
-				point.x < ((pj.x - pi.x) * (point.y - pi.y)) / (pj.y - pi.y) + pi.x;
-			if (intersects) inside = !inside;
+	const bridgeTracker = createHoverBridgeTracker({
+		gap: BRIDGE_GAP,
+		getSourceRect: () => {
+			if (!highlightContainerEl) return null;
+			return getHighlightBodyRect(highlightContainerEl);
+		},
+		getTargetRect: () => {
+			const tipNode = document.querySelector<HTMLElement>(TIP_CONTAINER_SELECTOR);
+			if (!tipNode) return null;
+			return domRectToBridgeRect(tipNode.getBoundingClientRect());
+		},
+		onExitBridge: exitBridge,
+		onPointerMove: (moveEvent) => {
+			const target = moveEvent.target instanceof Element ? moveEvent.target : null;
+			if (target?.closest(TIP_CONTAINER_SELECTOR)) {
+				return 'ignore';
+			}
+			const targetHighlight = target?.closest<HTMLElement>('.highlight_container');
+			if (targetHighlight && targetHighlight !== highlightContainerEl) {
+				return 'close';
+			}
+			return 'continue';
 		}
-		return inside;
-	}
+	});
 
-	function pointInRect(
-		point: { x: number; y: number },
-		rect: { left: number; right: number; top: number; bottom: number }
-	) {
-		return (
-			point.x >= rect.left && point.x <= rect.right && point.y >= rect.top && point.y <= rect.bottom
-		);
-	}
-
-	function isPointInBridge(
-		point: { x: number; y: number },
-		highlightRect: { left: number; right: number; top: number; bottom: number },
-		tipRect: DOMRect
-	) {
-		if (pointInRect(point, highlightRect)) {
-			return true;
-		}
-
-		if (pointInRect(point, tipRect)) {
-			return true;
-		}
-
-		return pointInPolygon(point, buildBridgePolygon(highlightRect, tipRect));
+	function stopBridgeTracking() {
+		bridgeTracker.stop();
+		debugBridgePoints = null;
+		debugHighlightBody = null;
+		debugTipBody = null;
 	}
 
 	function startBridgeTracking(container: HTMLElement, event: MouseEvent) {
-		stopBridgeTracking();
+		highlightContainerEl = container;
 
-		const tipNode = document.querySelector<HTMLElement>(TIP_CONTAINER_SELECTOR);
-		const highlightRect = getHighlightBodyRect(container);
-		if (!tipNode || !highlightRect) {
-			pdfHighlighterUtils.setTip?.({ show: false });
-			onMouseLeave?.();
-			return;
-		}
-
-		const tipRect = tipNode.getBoundingClientRect();
-		const bridgePolygon = buildBridgePolygon(highlightRect, tipRect);
 		if (DEBUG_HOVER_BRIDGE) {
-			debugBridgePoints = bridgePolygon.map((point) => `${point.x},${point.y}`).join(' ');
-			debugHighlightBody = {
-				left: highlightRect.left,
-				top: highlightRect.top,
-				width: highlightRect.right - highlightRect.left,
-				height: highlightRect.bottom - highlightRect.top
-			};
-			debugTipBody = {
-				left: tipRect.left,
-				top: tipRect.top,
-				width: tipRect.width,
-				height: tipRect.height
-			};
-		}
-		bridgeShouldStayOpen = (x: number, y: number) =>
-			isPointInBridge({ x, y }, highlightRect, tipRect);
-
-		if (!bridgeShouldStayOpen(event.clientX, event.clientY)) {
-			pdfHighlighterUtils.setTip?.({ show: false });
-			onMouseLeave?.();
-			return;
+			const highlightRect = getHighlightBodyRect(container);
+			const tipNode = document.querySelector<HTMLElement>(TIP_CONTAINER_SELECTOR);
+			if (highlightRect && tipNode) {
+				const tipRect = tipNode.getBoundingClientRect();
+				const bridgePolygon = buildBridgePolygon(highlightRect, domRectToBridgeRect(tipRect), BRIDGE_GAP);
+				debugBridgePoints = bridgePolygon.map((point) => `${point.x},${point.y}`).join(' ');
+				debugHighlightBody = {
+					left: highlightRect.left,
+					top: highlightRect.top,
+					width: highlightRect.right - highlightRect.left,
+					height: highlightRect.bottom - highlightRect.top
+				};
+				debugTipBody = {
+					left: tipRect.left,
+					top: tipRect.top,
+					width: tipRect.width,
+					height: tipRect.height
+				};
+			}
 		}
 
-		bridgePointerMove = (moveEvent: PointerEvent) => {
-			const target = moveEvent.target instanceof Element ? moveEvent.target : null;
-			if (target?.closest(TIP_CONTAINER_SELECTOR)) {
-				return;
-			}
-			const targetHighlight = target?.closest<HTMLElement>('.highlight_container');
-			if (targetHighlight && targetHighlight !== container) {
-				stopBridgeTracking();
-				pdfHighlighterUtils.setTip?.({ show: false });
-				onMouseLeave?.();
-				return;
-			}
-			if (!bridgeShouldStayOpen!(moveEvent.clientX, moveEvent.clientY)) {
-				stopBridgeTracking();
-				pdfHighlighterUtils.setTip?.({ show: false });
-				onMouseLeave?.();
-			}
-		};
-		document.addEventListener('pointermove', bridgePointerMove);
+		bridgeTracker.start(event);
 	}
 
 	function handleExternalBridgeStop() {
@@ -228,7 +174,9 @@
 
 	function handleTipLeave(event: Event) {
 		const customEvent = event as CustomEvent<{ clientX: number; clientY: number }>;
-		if (bridgeShouldStayOpen && bridgeShouldStayOpen(customEvent.detail.clientX, customEvent.detail.clientY)) {
+		if (
+			bridgeTracker.shouldStayOpen(customEvent.detail.clientX, customEvent.detail.clientY)
+		) {
 			event.preventDefault();
 		}
 	}
@@ -252,6 +200,7 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
 	class="highlight_container"
+	bind:this={highlightContainerEl}
 	id={highlightTip?.content?.highlight?.id
 		? `highlight-${highlightTip.content.highlight.id}`
 		: undefined}
