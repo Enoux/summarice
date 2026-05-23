@@ -38,6 +38,9 @@ importers:
       pdfjs-dist:
         specifier: 4.4.168
         version: 4.4.168
+      stemmer:
+        specifier: ^2.0.1
+        version: 2.0.1
       zod:
         specifier: ^4.3.6
         version: 4.3.6
@@ -2225,6 +2228,10 @@ packages:
 
   std-env@3.10.0:
     resolution: {integrity: sha512-5GS12FdOZNliM5mAOxFRg7Ir0pWz8MdpYm6AY6VPkGpbA7ZzmbzNcBJQ0GPvvyWgcY7QAhCgf9Uy89I03faLkg==}
+
+  stemmer@2.0.1:
+    resolution: {integrity: sha512-bkWvSX2JR4nSZFfs113kd4C6X13bBBrg4fBKv2pVdzpdQI2LA5pZcWzTFNdkYsiUNl13E4EzymSRjZ0D55jBYg==}
+    hasBin: true
 
   string-width@4.2.3:
     resolution: {integrity: sha512-wKyQRQpjJ0sIp62ErSZdGsjMJWsap5oRNihHhu6G7JVO/9jIB6UyevL+tXuOqrng8j/cxKTWyWUwvSTriiZz/g==}
@@ -4478,6 +4485,8 @@ snapshots:
   stackback@0.0.2: {}
 
   std-env@3.10.0: {}
+
+  stemmer@2.0.1: {}
 
   string-width@4.2.3:
     dependencies:
