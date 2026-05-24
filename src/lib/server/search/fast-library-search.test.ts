@@ -20,6 +20,7 @@ import {
 	searchFastLibrary,
 	searchFastLibraryDirect,
 	searchFastLibraryEnrichment,
+	searchFastLibraryRecommended,
 	searchFastLibrarySemantic
 } from './fast-library-search';
 
@@ -110,6 +111,8 @@ function rawDocumentCandidate(
 		document_id: string;
 		document_title: string;
 		summary_block: string;
+		tags: string[];
+		entities: string[];
 		rank: number;
 	}>
 ): Record<string, unknown> {
@@ -117,10 +120,48 @@ function rawDocumentCandidate(
 		document_id: 'document-result',
 		document_title: 'Document Result',
 		summary_block: 'summary block text',
+		tags: [],
+		entities: [],
 		rank: 1,
 		...overrides
 	};
 }
+
+describe('searchFastLibraryRecommended', () => {
+	it('fetches up to three cross-document recommendation candidates', async () => {
+		const stub = createSupabaseSearchStub({
+			fast_search_recommended_candidates: [
+				rawHighlightCandidate({ highlight_id: 'recent-a', document_id: 'doc-a', rank: 1 }),
+				rawHighlightCandidate({ highlight_id: 'recent-b', document_id: 'doc-b', rank: 2 })
+			]
+		});
+
+		const response = await searchFastLibraryRecommended({
+			supabase: stub.supabase as never,
+			ownerId: 'owner-a',
+			rawQuery: '',
+			currentDocumentId: 'doc-current'
+		});
+
+		expect(stub.rpcCalls).toEqual([
+			{
+				name: 'fast_search_recommended_candidates',
+				params: {
+					p_owner_id: 'owner-a',
+					p_current_document_id: 'doc-current',
+					p_limit: 3
+				}
+			}
+		]);
+		expect(response.lanes.map((lane) => [lane.id, lane.results.length])).toEqual([
+			['recommended', 2]
+		]);
+		expect(response.results.map((result) => result.kind)).toEqual([
+			'recommended_highlight',
+			'recommended_highlight'
+		]);
+	});
+});
 
 describe('searchFastLibraryDirect', () => {
 	it('returns only direct highlight matches without logging telemetry', async () => {
@@ -198,6 +239,41 @@ describe('searchFastLibraryEnrichment', () => {
 			'document'
 		]);
 		expect(response.results[0]).toMatchObject({ kind: 'direct_highlight', highlightId: 'direct-a' });
+	});
+
+	it('includes current summary tags and entities on document results', async () => {
+		const directStub = createSupabaseSearchStub({});
+		const directResponse = await searchFastLibraryDirect({
+			supabase: directStub.supabase as never,
+			ownerId: 'owner-a',
+			rawQuery: 'rag'
+		});
+		const enrichmentStub = createSupabaseSearchStub({
+			fast_search_document_candidates: [
+				rawDocumentCandidate({
+					document_id: 'doc-match',
+					document_title: 'Doc Match',
+					tags: ['retrieval', 'grounding'],
+					entities: ['RAG']
+				})
+			]
+		});
+
+		const response = await searchFastLibraryEnrichment(
+			{
+				supabase: enrichmentStub.supabase as never,
+				ownerId: 'owner-a',
+				rawQuery: 'rag'
+			},
+			directResponse
+		);
+
+		expect(response.results.find((result) => result.kind === 'document')).toMatchObject({
+			kind: 'document',
+			documentId: 'doc-match',
+			tags: ['retrieval', 'grounding'],
+			entities: ['RAG']
+		});
 	});
 });
 

@@ -30,6 +30,7 @@ const MMR_POOL_SIZE = 20;
 const RESULT_LIMIT = 10;
 const GROUPED_LANE_LIMIT = 4;
 const GROUPED_TOTAL_LIMIT = 12;
+const RECOMMENDED_LIMIT = 3;
 const SEMANTIC_SIMILARITY_THRESHOLD = 0.75;
 const EMBEDDING_RETRY_ATTEMPTS = 3;
 
@@ -43,12 +44,13 @@ export type SearchStageCounts = {
 };
 
 export type FastSearchResultKind =
+	| 'recommended_highlight'
 	| 'direct_highlight'
 	| 'summary_highlight'
 	| 'semantic_highlight'
 	| 'document';
 
-export type FastSearchLaneId = 'direct' | 'summary' | 'semantic' | 'document';
+export type FastSearchLaneId = 'recommended' | 'direct' | 'summary' | 'semantic' | 'document';
 
 export type FastSearchHighlightResult = {
 	kind: Exclude<FastSearchResultKind, 'document'>;
@@ -71,6 +73,8 @@ export type FastSearchDocumentResult = {
 	documentId: string;
 	documentTitle: string;
 	text: string;
+	tags: string[];
+	entities: string[];
 	score: number;
 	href: string;
 };
@@ -103,6 +107,7 @@ export type FastSearchOptions = {
 	rawQuery: string;
 	clientFilters?: FastSearchFilters;
 	resultScope?: FastSearchResultScope;
+	currentDocumentId?: string | null;
 };
 
 function getParsedFastSearchQuery(opts: FastSearchOptions): ParsedFastSearchQuery {
@@ -165,6 +170,8 @@ type RawDocumentCandidate = {
 	document_id: string;
 	document_title: string;
 	summary_block: string;
+	tags?: string[] | null;
+	entities?: string[] | null;
 	rank: number;
 };
 
@@ -339,6 +346,41 @@ export async function searchFastLibraryDirect(opts: FastSearchOptions): Promise<
 	}
 }
 
+export async function searchFastLibraryRecommended(
+	opts: FastSearchOptions
+): Promise<FastSearchResponse> {
+	const startedAt = performance.now();
+	const parsed = getParsedFastSearchQuery({ ...opts, rawQuery: '' });
+
+	try {
+		const rows = await fetchRecommendedCandidates(
+			opts.supabase,
+			opts.ownerId,
+			opts.currentDocumentId ?? null
+		);
+		const recommendedResults = rows.map((row) =>
+			shapeHighlightResult(rowToCandidateRecord(row), 'recommended_highlight')
+		);
+		const lanes: FastSearchLane[] = [
+			{ id: 'recommended', label: 'Recommended', results: recommendedResults }
+		];
+		const results = flattenLanes(lanes);
+		const telemetry = buildTelemetry(parsed, [], rows, [], results, startedAt, 0);
+
+		return { results, lanes, telemetry };
+	} catch (error) {
+		console.error('[fast-library-search recommended]', {
+			ownerId: opts.ownerId,
+			currentDocumentId: opts.currentDocumentId ?? null,
+			error: errorMessage(error, {
+				operation: 'fast library recommended search',
+				params: { ownerId: opts.ownerId, currentDocumentId: opts.currentDocumentId ?? null }
+			})
+		});
+		throw error;
+	}
+}
+
 export async function searchFastLibraryEnrichment(
 	opts: FastSearchOptions,
 	previousResponse: FastSearchResponse
@@ -366,6 +408,11 @@ export async function searchFastLibraryEnrichment(
 			.slice(0, GROUPED_LANE_LIMIT)
 			.map((row) => shapeDocumentResult(row));
 		const lanes = capGroupedLanes([
+			{
+				id: 'recommended',
+				label: 'Recommended',
+				results: existingResults.filter((result) => result.kind === 'recommended_highlight')
+			},
 			{ id: 'direct', label: 'Direct matches', results: directResults },
 			{
 				id: 'summary',
@@ -629,6 +676,21 @@ async function fetchDirectCandidates(
 	return (data ?? []) as RawCandidate[];
 }
 
+async function fetchRecommendedCandidates(
+	supabase: SupabaseClient,
+	ownerId: string,
+	currentDocumentId: string | null
+): Promise<RawCandidate[]> {
+	const { data, error } = await supabase.rpc('fast_search_recommended_candidates', {
+		p_owner_id: ownerId,
+		p_current_document_id: currentDocumentId,
+		p_limit: RECOMMENDED_LIMIT
+	});
+
+	if (error) throw error;
+	return (data ?? []) as RawCandidate[];
+}
+
 async function fetchLexicalCandidates(
 	supabase: SupabaseClient,
 	ownerId: string,
@@ -832,9 +894,15 @@ function shapeDocumentResult(candidate: RawDocumentCandidate): FastSearchDocumen
 		documentId: candidate.document_id,
 		documentTitle: candidate.document_title,
 		text: candidate.summary_block,
+		tags: normalizeTextArray(candidate.tags),
+		entities: normalizeTextArray(candidate.entities),
 		score: 1 / (RRF_K + candidate.rank),
 		href: `/doc/${candidate.document_id}`
 	};
+}
+
+function normalizeTextArray(values: string[] | null | undefined): string[] {
+	return (values ?? []).map((value) => value.trim()).filter((value) => value.length > 0);
 }
 
 function buildTelemetry(
@@ -913,6 +981,11 @@ function flattenLanes(lanes: FastSearchLane[]): FastSearchResult[] {
 function groupMergedResults(results: FastSearchResult[]): FastSearchLane[] {
 	return [
 		{
+			id: 'recommended',
+			label: 'Recommended',
+			results: results.filter((result) => result.kind === 'recommended_highlight')
+		},
+		{
 			id: 'direct',
 			label: 'Direct matches',
 			results: results.filter((result) => result.kind === 'direct_highlight')
@@ -936,6 +1009,7 @@ function groupMergedResults(results: FastSearchResult[]): FastSearchLane[] {
 }
 
 function laneForResult(result: FastSearchResult): FastSearchLaneId {
+	if (result.kind === 'recommended_highlight') return 'recommended';
 	if (result.kind === 'direct_highlight') return 'direct';
 	if (result.kind === 'summary_highlight') return 'summary';
 	if (result.kind === 'semantic_highlight') return 'semantic';

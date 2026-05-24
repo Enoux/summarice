@@ -8,6 +8,7 @@ import {
 	FastSearchQueryError,
 	searchFastLibraryDirect,
 	searchFastLibraryEnrichment,
+	searchFastLibraryRecommended,
 	searchFastLibrarySemantic,
 	type FastSearchResponse
 } from '$lib/server/search/fast-library-search';
@@ -18,6 +19,7 @@ type FastSearchRequestBody = {
 	resultScope?: unknown;
 	previousResponse?: unknown;
 	lexicalResponse?: unknown;
+	currentDocumentId?: unknown;
 };
 
 export const POST: RequestHandler = async ({ locals, request }) => {
@@ -51,7 +53,8 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 			ownerId: locals.user.id,
 			rawQuery: body.query,
 			clientFilters,
-			resultScope
+			resultScope,
+			currentDocumentId: readOptionalString(body.currentDocumentId)
 		};
 		const previousResponse = readOptionalPreviousResponse(body);
 		const response = await searchStage(stage, baseOptions, previousResponse);
@@ -91,6 +94,10 @@ async function searchStage(
 	baseOptions: Parameters<typeof searchFastLibraryDirect>[0],
 	previousResponse: FastSearchResponse | null
 ): Promise<FastSearchResponse> {
+	if (stage === 'recommended') {
+		return searchFastLibraryRecommended(baseOptions);
+	}
+
 	if (stage === 'semantic') {
 		return searchFastLibrarySemantic(baseOptions, requirePreviousResponse(previousResponse, 'Semantic'));
 	}
@@ -125,4 +132,17 @@ function readPreviousResponse(response: unknown): FastSearchResponse {
 	}
 
 	return response as FastSearchResponse;
+}
+
+function readOptionalString(value: unknown): string | null {
+	if (value === undefined || value === null) {
+		return null;
+	}
+
+	if (typeof value !== 'string') {
+		throw new FastSearchQueryError('Current document id must be text.');
+	}
+
+	const trimmed = value.trim();
+	return trimmed.length > 0 ? trimmed : null;
 }
