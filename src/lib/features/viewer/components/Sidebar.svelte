@@ -15,6 +15,7 @@
 		scoreHighlightLexical
 	} from '$lib/search/highlight-lexical-match';
 	import { parseWebsearchQuery } from '$lib/search/websearch-query';
+	import { cn } from '$lib/utils';
 
 	interface Props {
 		highlightsStore: HighlightsModel<CommentedHighlight>;
@@ -150,8 +151,8 @@
 	});
 </script>
 
-<!-- Resize handle -->
 {#if isOpen}
+	<!-- Resize handle -->
 	<div
 		class="group relative flex w-1 cursor-col-resize items-center justify-center bg-border transition-colors hover:bg-primary"
 		onmousedown={startResizing}
@@ -162,136 +163,145 @@
 			class="absolute h-8 w-1.5 rounded-full bg-border group-hover:bg-primary-foreground/50"
 		></div>
 	</div>
-{/if}
 
-<aside
-	class="flex h-full shrink-0 flex-col border-l border-border bg-card transition-[width] duration-300 select-none"
-	class:hidden={!isOpen}
-	style:width="{width}px"
-	aria-label="Sidebar"
->
-	<div class="flex h-full flex-col overflow-hidden">
-		<!-- Tabs Header -->
-		<div class="flex h-11 items-center justify-around border-b border-border bg-muted/30">
-			<button
-				class="flex h-full flex-1 items-center justify-center gap-2 text-sm font-medium transition-colors hover:text-primary"
-				class:text-primary={activeTab === 'highlights'}
-				class:border-b-2={activeTab === 'highlights'}
-				class:border-primary={activeTab === 'highlights'}
-				onclick={() => (activeTab = 'highlights')}
-			>
-				<LayoutList class="size-4" />
-				Highlights
-			</button>
-			<button
-				class="flex h-full flex-1 items-center justify-center gap-2 text-sm font-medium transition-colors hover:text-primary"
-				class:text-primary={activeTab === 'summary'}
-				class:border-b-2={activeTab === 'summary'}
-				class:border-primary={activeTab === 'summary'}
-				onclick={() => (activeTab = 'summary')}
-			>
-				<MessageSquare class="size-4" />
-				Summary
-			</button>
-		</div>
+	<aside
+		class="flex h-full shrink-0 flex-col border-l border-border bg-card select-none"
+		style:width="{width}px"
+		aria-label="Sidebar"
+	>
+		<div class="flex h-full flex-col overflow-hidden">
+				<!-- Tabs Header -->
+				<div class="flex h-11 border-b border-border bg-muted/30">
+					<button
+						type="button"
+						class={cn(
+							'flex h-full flex-1 items-center justify-center gap-2 border-b-2 text-sm font-medium transition-colors hover:text-primary',
+							activeTab === 'highlights'
+								? 'border-primary text-primary'
+								: 'border-transparent text-muted-foreground'
+						)}
+						onclick={() => (activeTab = 'highlights')}
+					>
+						<LayoutList class="size-4" />
+						Highlights
+					</button>
+					<button
+						type="button"
+						class={cn(
+							'flex h-full flex-1 items-center justify-center gap-2 border-b-2 text-sm font-medium transition-colors hover:text-primary',
+							activeTab === 'summary'
+								? 'border-primary text-primary'
+								: 'border-transparent text-muted-foreground'
+						)}
+						onclick={() => (activeTab = 'summary')}
+					>
+						<MessageSquare class="size-4" />
+						Summary
+					</button>
+				</div>
 
-		<div class="flex min-h-0 flex-1 flex-col overflow-hidden">
-			<div
-				class="flex min-h-0 flex-1 flex-col overflow-hidden"
-				class:hidden={activeTab !== 'highlights'}
-				aria-hidden={activeTab !== 'highlights'}
-				inert={activeTab !== 'highlights'}
-			>
-				<div class="px-2 py-3">
-					<div class="relative">
-						<Search class="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-						<Input
-							type="search"
-							bind:value={query}
-							placeholder="Search"
-							class="pl-9"
+				<div class="flex min-h-0 flex-1 flex-col overflow-hidden">
+					<div
+						class="flex min-h-0 flex-1 flex-col overflow-hidden"
+						class:hidden={activeTab !== 'highlights'}
+						aria-hidden={activeTab !== 'highlights'}
+						inert={activeTab !== 'highlights'}
+					>
+						<div class="px-2 py-3">
+							<div class="relative">
+								<Search
+									class="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground"
+								/>
+								<Input
+									type="search"
+									bind:value={query}
+									placeholder="Search"
+									class="pl-9"
+								/>
+							</div>
+						</div>
+						<Separator class="opacity-50" />
+
+						<div class="minimal-scrollbar min-h-0 flex-1 overflow-y-auto">
+							<div class="flex flex-col gap-2 p-3" role="listbox" aria-label="Document highlights">
+								{#each filtered as h (h.id)}
+									<HighlightListItem
+										highlight={h}
+										onSelect={selectHighlight}
+										onDelete={deleteOne}
+										{onRecategorize}
+										{categoryLabels}
+										{decorativeMode}
+										{viewerColorMode}
+										{onAddAnnotation}
+										{onUpdateAnnotation}
+										{onDeleteAnnotation}
+
+										selected={selectedHighlightId === (h.id ?? null)}
+										onHover={(id) => highlightsStore.setHoveredHighlightId(id)}
+										citationCount={citationCounts[h.id!] ?? 0}
+										onNavigateToSummary={() => {
+											activeTab = 'summary';
+											summaryHighlightIdToScrollTo = h.id!;
+										}}
+									/>
+								{:else}
+									<div
+										class="flex flex-col items-center justify-center space-y-3 py-20 text-center"
+									>
+										<div class="rounded-full bg-muted p-4">
+											<LayoutList class="size-8 text-muted-foreground/40" />
+										</div>
+										<div class="space-y-1">
+											<p class="text-sm font-medium">No highlights yet</p>
+											<p class="text-muted-foreground max-w-[200px] text-xs">
+												Select text or an area in the PDF to create your first highlight.
+											</p>
+										</div>
+									</div>
+								{/each}
+							</div>
+						</div>
+
+						<Separator />
+
+						{#if onResetAll}
+							<div class="p-3">
+								<Button
+									variant="outline"
+									size="sm"
+									class="w-full gap-2 text-muted-foreground hover:text-destructive"
+									onclick={() => onResetAll()}
+								>
+									<RotateCcw class="size-3.5" />
+									Delete all highlights
+								</Button>
+							</div>
+						{/if}
+					</div>
+
+					<div
+						class="flex min-h-0 flex-1 flex-col overflow-hidden"
+						class:hidden={activeTab !== 'summary'}
+						aria-hidden={activeTab !== 'summary'}
+						inert={activeTab !== 'summary'}
+					>
+						<Summary
+							highlights={highlightsStore.highlights}
+							{viewerUtils}
+							{viewerColorMode}
+							onJumpToHighlight={(id) => {
+								selectedHighlightId = id;
+								activeTab = 'highlights';
+								document
+									.getElementById(`sidebar-highlight-${id}`)
+									?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+							}}
+							bind:activeCitations={activeSummaryCitations}
+							bind:scrollToHighlightId={summaryHighlightIdToScrollTo}
 						/>
 					</div>
 				</div>
-				<Separator class="opacity-50" />
-
-				<div class="minimal-scrollbar min-h-0 flex-1 overflow-y-auto">
-					<div class="flex flex-col gap-2 p-3" role="listbox" aria-label="Document highlights">
-						{#each filtered as h (h.id)}
-							<HighlightListItem
-								highlight={h}
-								onSelect={selectHighlight}
-								onDelete={deleteOne}
-								{onRecategorize}
-								{categoryLabels}
-								{decorativeMode}
-								{viewerColorMode}
-								{onAddAnnotation}
-								{onUpdateAnnotation}
-								{onDeleteAnnotation}
-
-								selected={selectedHighlightId === (h.id ?? null)}
-								onHover={(id) => highlightsStore.setHoveredHighlightId(id)}
-								citationCount={citationCounts[h.id!] ?? 0}
-								onNavigateToSummary={() => {
-									activeTab = 'summary';
-									summaryHighlightIdToScrollTo = h.id!;
-								}}
-							/>
-						{:else}
-							<div class="flex flex-col items-center justify-center space-y-3 py-20 text-center">
-								<div class="rounded-full bg-muted p-4">
-									<LayoutList class="size-8 text-muted-foreground/40" />
-								</div>
-								<div class="space-y-1">
-									<p class="text-sm font-medium">No highlights yet</p>
-									<p class="text-muted-foreground max-w-[200px] text-xs">
-										Select text or an area in the PDF to create your first highlight.
-									</p>
-								</div>
-							</div>
-						{/each}
-					</div>
-				</div>
-
-				<Separator />
-
-				{#if onResetAll}
-					<div class="p-3">
-						<Button
-							variant="outline"
-							size="sm"
-							class="w-full gap-2 text-muted-foreground hover:text-destructive"
-							onclick={() => onResetAll()}
-						>
-							<RotateCcw class="size-3.5" />
-							Delete all highlights
-						</Button>
-					</div>
-				{/if}
 			</div>
-
-			<div
-				class="flex min-h-0 flex-1 flex-col overflow-hidden"
-				class:hidden={activeTab !== 'summary'}
-				aria-hidden={activeTab !== 'summary'}
-				inert={activeTab !== 'summary'}
-			>
-				<Summary
-					highlights={highlightsStore.highlights}
-					{viewerUtils}
-					{viewerColorMode}
-					onJumpToHighlight={(id) => {
-						selectedHighlightId = id;
-						activeTab = 'highlights';
-						document
-							.getElementById(`sidebar-highlight-${id}`)
-							?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-					}}
-					bind:activeCitations={activeSummaryCitations}
-					bind:scrollToHighlightId={summaryHighlightIdToScrollTo}
-				/>
-			</div>
-		</div>
-	</div>
-</aside>
+	</aside>
+{/if}

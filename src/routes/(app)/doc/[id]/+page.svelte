@@ -34,6 +34,7 @@
 	} from '$lib/features/highlights/logic';
 	import { zoomIn, zoomOut } from '$lib/pdf-highlighter/lib/zoom';
 	import { toast } from 'svelte-sonner';
+	import { afterNavigate } from '$app/navigation';
 	import { createFigureInterpretation } from './figure-interpretation.remote';
 
 	const docMeta = $derived(data?.document);
@@ -75,6 +76,7 @@
 	let highlightActionErrors = $state<Record<string, string | undefined>>({});
 	let pendingHashHighlightId: string | null = null;
 	let handledHashHighlightId: string | null = null;
+	let trackedDocId = $state('');
 	const pendingHighlightPersists = new Map<string, Promise<CommentedHighlight>>();
 
 	const PdfHighlighterComponent = PdfHighlighter as unknown as Component<Record<string, unknown>>;
@@ -203,6 +205,27 @@
 		pendingHashHighlightId = id;
 		tryNavigateToPendingHash();
 	}
+
+	function resetHashNavigationState(): void {
+		handledHashHighlightId = null;
+		pendingHashHighlightId = null;
+	}
+
+	function runHashNavigationFromUrl(): void {
+		resetHashNavigationState();
+		queueHashNavigation();
+	}
+
+	$effect(() => {
+		if (trackedDocId && docId !== trackedDocId) {
+			resetHashNavigationState();
+		}
+		trackedDocId = docId;
+	});
+
+	afterNavigate(() => {
+		runHashNavigationFromUrl();
+	});
 
 	function prepareHighlightForAdd(h: CommentedHighlight) {
 		const id = crypto.randomUUID();
@@ -669,6 +692,7 @@
 	{#if pdfUrl}
 		<div class="flex min-h-0 flex-1 overflow-hidden">
 			<main class="relative flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
+				{#key docId}
 				<PdfLoader document={pdfUrl} workerSrc={pdfWorkerUrl}>
 					{#snippet beforeLoad(progress)}
 						<ViewerSkeleton
@@ -754,6 +778,7 @@
 						</div>
 					{/snippet}
 				</PdfLoader>
+				{/key}
 			</main>
 		</div>
 	{:else}
