@@ -88,18 +88,7 @@
 		}
 	}
 
-	function onKeyNew(e: KeyboardEvent) {
-		if (mode !== 'new' || decorativeMode) return;
-		if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) return;
-		const n = e.key;
-		if (/^[1-5]$/.test(n)) {
-			e.preventDefault();
-			pickSemanticSlot(parseInt(n, 10) - 1);
-		}
-	}
 </script>
-
-<svelte:window onkeydown={onKeyNew} />
 
 <div
 	class="w-[min(100vw-2rem,360px)] rounded-md border border-border bg-popover p-3 text-popover-foreground shadow-md"
@@ -151,11 +140,7 @@
 			<Button type="button" onclick={saveDecorativeNew}>Save highlight</Button>
 		</div>
 	{:else}
-		<p class="mb-2 text-xs text-muted-foreground">
-			Pick a category (keys <kbd class="rounded border px-1">1</kbd>–<kbd class="rounded border px-1"
-				>5</kbd
-			>)
-		</p>
+		<p class="mb-2 text-xs text-muted-foreground">Pick a category</p>
 		<ToggleGroup
 			type="single"
 			bind:value={colorPick}

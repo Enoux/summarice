@@ -2,13 +2,18 @@
 	import { Button } from '$lib/components/ui/button';
 	import * as Popover from '$lib/components/ui/popover';
 	import FastLibrarySearch from '$lib/components/search/FastLibrarySearch.svelte';
-	import { LogOut, User, Settings, LayoutDashboard, Command, Sun, Moon } from '@lucide/svelte';
+	import { LogOut, User, Settings, LayoutDashboard, Sun, Moon } from '@lucide/svelte';
 	import { page } from '$app/state';
 	import { toggleMode, mode } from 'mode-watcher';
+	import { getFastSearchOptimisticTarget } from '$lib/search/fast-search-navigation-state.svelte';
 
 	const { children, data } = $props();
 	const { user, profile } = $derived(data);
 	const currentMode = $derived(mode.current);
+	const optimisticFastSearchTarget = $derived(getFastSearchOptimisticTarget());
+	const documentTitle = $derived(
+		optimisticFastSearchTarget?.documentTitle ?? page.data.document?.title ?? 'Document'
+	);
 </script>
 
 <div
@@ -24,7 +29,12 @@
 			<!-- Left: Logo & Breadcrumb -->
 			<div class="flex min-w-0 items-center gap-2 justify-self-start pl-2.5">
 				<a href="/" class="flex items-center gap-2 text-muted-foreground/80 hover:text-foreground transition-colors">
-					<Command class="h-3.5 w-3.5" />
+					<img
+						src="/summarice.svg"
+						alt=""
+						class="h-3.5 w-3.5 shrink-0 object-contain"
+						aria-hidden="true"
+					/>
 					{#if !page.url.pathname.startsWith('/doc')}
 						<span class="text-foreground text-sm font-bold">Summarice</span>
 					{/if}
@@ -43,7 +53,7 @@
 						</a>
 						<span class="text-muted-foreground/40 select-none">/</span>
 						<span class="truncate max-w-[200px] font-medium">
-							{page.data.document?.title || 'Document'}
+							{documentTitle}
 						</span>
 					{:else if page.url.pathname.startsWith('/settings')}
 						<Settings class="h-3.5 w-3.5 text-muted-foreground/80" />

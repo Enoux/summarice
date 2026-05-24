@@ -36,6 +36,11 @@
 	import { toast } from 'svelte-sonner';
 	import { afterNavigate } from '$app/navigation';
 	import { createFigureInterpretation } from './figure-interpretation.remote';
+	import {
+		getFastSearchLocalJumpTarget,
+		getFastSearchOptimisticTarget
+	} from '$lib/search/fast-search-navigation-state.svelte';
+	import { isFastSearchOptimisticDocumentLoading } from '$lib/search/fast-search-navigation';
 
 	const docMeta = $derived(data?.document);
 	const pdfUrl = $derived(data?.pdfUrl);
@@ -47,6 +52,13 @@
 	);
 	const canonicalSlotHexList = $derived(canonicalHighlightPalette());
 	const displaySlotHexList = $derived(resolveHighlightPalette(viewerColorMode));
+	const fastSearchOptimisticTarget = $derived(getFastSearchOptimisticTarget());
+	const showOptimisticDocumentLoader = $derived(
+		isFastSearchOptimisticDocumentLoading({
+			target: fastSearchOptimisticTarget,
+			currentDocumentId: docId || null
+		})
+	);
 
 	let pdfHighlighterUtils = $state<Partial<PdfHighlighterUtils>>({});
 	let highlightsStore = new HighlightsModel<CommentedHighlight>(data?.highlights ?? []);
@@ -76,8 +88,10 @@
 	let highlightActionErrors = $state<Record<string, string | undefined>>({});
 	let pendingHashHighlightId: string | null = null;
 	let handledHashHighlightId: string | null = null;
+	let handledFastSearchLocalJumpRequestId = 0;
 	let trackedDocId = $state('');
 	const pendingHighlightPersists = new Map<string, Promise<CommentedHighlight>>();
+	const fastSearchLocalJumpTarget = $derived(getFastSearchLocalJumpTarget());
 
 	const PdfHighlighterComponent = PdfHighlighter as unknown as Component<Record<string, unknown>>;
 	const highlightActionState = $derived({
@@ -149,9 +163,12 @@
 
 	function selectHighlight(
 		h: CommentedHighlight,
-		{ updateHash = false, flash = true }: { updateHash?: boolean; flash?: boolean } = {}
-	) {
-		if (!h.id) return;
+		options?: { updateHash?: boolean; flash?: boolean; behavior?: ScrollBehavior }
+	): boolean {
+		if (!h.id) return false;
+		const updateHash: boolean = options?.updateHash ?? false;
+		const flash: boolean = options?.flash ?? true;
+		const behavior: ScrollBehavior = options?.behavior ?? 'smooth';
 		({ selectedHighlightId, sidebarOpen } = applyHighlightSelection(
 			{ selectedHighlightId, sidebarOpen },
 			h.id
@@ -164,8 +181,9 @@
 		}
 
 		// Scroll PDF viewer to highlight
-		pdfHighlighterUtils.scrollToHighlight?.(h, flash);
+		const didScroll = pdfHighlighterUtils.scrollToHighlight?.(h, flash, behavior) ?? false;
 		scrollSidebarToHighlight(h.id);
+		return didScroll;
 	}
 
 	function handleHighlightSelect(h: CommentedHighlight) {
@@ -193,10 +211,30 @@
 		if (!id || handledHashHighlightId === id) return;
 		const h = highlightsStore.getHighlightById(id);
 		if (h) {
-			pendingHashHighlightId = null;
-			handledHashHighlightId = id;
-			selectHighlight(h);
+			const didScroll = selectHighlight(h, {
+				updateHash: false,
+				flash: true,
+				behavior: 'auto'
+			});
+			if (didScroll) {
+				pendingHashHighlightId = null;
+				handledHashHighlightId = id;
+			}
 		}
+	}
+
+	function handleFastSearchLocalJump(): void {
+		const target = fastSearchLocalJumpTarget;
+		if (!target || target.requestId === handledFastSearchLocalJumpRequestId) {
+			return;
+		}
+		if (target.documentId !== docId) {
+			return;
+		}
+		handledFastSearchLocalJumpRequestId = target.requestId;
+		handledHashHighlightId = null;
+		pendingHashHighlightId = target.highlightId;
+		tryNavigateToPendingHash();
 	}
 
 	function queueHashNavigation() {
@@ -211,6 +249,22 @@
 		pendingHashHighlightId = null;
 	}
 
+	function resetDocumentScopedViewerState(): void {
+		pdfHighlighterUtils = {};
+		currentPage = 1;
+		selectedHighlightId = null;
+		sidebarActiveTab = 'highlights';
+		explainingHighlightIds = new Set();
+		deletingHighlightIds = new Set();
+		savingAdjustedHighlightIds = new Set();
+		adjustingHighlightId = null;
+		pendingReExplainHighlightId = null;
+		adjustmentDraft = null;
+		highlightActionErrors = {};
+		pendingHighlightPersists.clear();
+		resetHashNavigationState();
+	}
+
 	function runHashNavigationFromUrl(): void {
 		resetHashNavigationState();
 		queueHashNavigation();
@@ -218,13 +272,17 @@
 
 	$effect(() => {
 		if (trackedDocId && docId !== trackedDocId) {
-			resetHashNavigationState();
+			resetDocumentScopedViewerState();
 		}
 		trackedDocId = docId;
 	});
 
 	afterNavigate(() => {
 		runHashNavigationFromUrl();
+	});
+
+	$effect(() => {
+		handleFastSearchLocalJump();
 	});
 
 	function prepareHighlightForAdd(h: CommentedHighlight) {
@@ -630,15 +688,6 @@
 			return;
 		}
 
-		if (!decorative && /^[1-5]$/.test(e.key)) {
-			e.preventDefault();
-			const idx = parseInt(e.key, 10) - 1;
-			const colorSlots = Math.max(1, pdfHighlighterUtils.colors?.length ?? 0);
-			const clampedIdx = Math.min(Math.max(idx, 0), colorSlots - 1);
-			pdfHighlighterUtils.selectedColorIndex = clampedIdx;
-			return;
-		}
-
 		switch (e.key) {
 			case 'ArrowRight':
 			case 'n':
@@ -689,7 +738,9 @@
 </script>
 
 <div class="flex h-full w-full flex-col overflow-hidden bg-background text-foreground">
-	{#if pdfUrl}
+	{#if showOptimisticDocumentLoader}
+		<ViewerSkeleton {leftOpen} {sidebarOpen} progress={10} />
+	{:else if pdfUrl}
 		<div class="flex min-h-0 flex-1 overflow-hidden">
 			<main class="relative flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
 				{#key docId}
