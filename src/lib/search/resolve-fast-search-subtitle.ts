@@ -1,4 +1,5 @@
 import type {
+	FastSearchClientDocumentResult,
 	FastSearchClientHighlightResult,
 	FastSearchClientResult
 } from '$lib/search/apply-fast-search-client-filters';
@@ -10,6 +11,8 @@ import type { ParsedWebsearchQuery } from '$lib/search/websearch-query';
 
 export type FastSearchSubtitle = {
 	primary: string;
+	themesLine: string | null;
+	entitiesLine: string | null;
 	showAnnotationLine: boolean;
 };
 
@@ -23,6 +26,24 @@ const AREA_FALLBACK = '[area highlight]';
 
 function trimmed(value: string | null | undefined): string {
 	return value?.trim() ?? '';
+}
+
+function nonEmptyValues(values: string[]): string[] {
+	return values.map((value) => value.trim()).filter((value) => value.length > 0);
+}
+
+function resolveDocumentSubtitle(result: FastSearchClientDocumentResult): FastSearchSubtitle {
+	const tags = nonEmptyValues(result.tags);
+	const entities = nonEmptyValues(result.entities);
+	const themesLine = tags.length > 0 ? `Themes: ${tags.join(', ')}` : null;
+	const entitiesLine = entities.length > 0 ? `Key Entities: ${entities.join(', ')}` : null;
+
+	return {
+		primary: themesLine === null && entitiesLine === null ? trimmed(result.text) : '',
+		themesLine,
+		entitiesLine,
+		showAnnotationLine: false
+	};
 }
 
 function noteField(text: string, parsedQuery: ParsedWebsearchQuery): NoteField | null {
@@ -82,12 +103,19 @@ function resolveTextHighlightSubtitle(
 
 	const bestNote = pickBestNoteField(matchingNotes);
 	if (bestNote !== null) {
-		return { primary: bestNote.text, showAnnotationLine: false };
+		return {
+			primary: bestNote.text,
+			themesLine: null,
+			entitiesLine: null,
+			showAnnotationLine: false
+		};
 	}
 
 	const annotationText = trimmed(result.annotationPreview);
 	return {
 		primary: fallbackPrimary,
+		themesLine: null,
+		entitiesLine: null,
 		showAnnotationLine:
 			annotationText.length > 0 && annotationText !== fallbackPrimary
 	};
@@ -98,7 +126,12 @@ function resolveHighlightSubtitle(
 	parsedQuery: ParsedWebsearchQuery
 ): FastSearchSubtitle {
 	if (result.highlightKind === 'area') {
-		return { primary: areaPrimaryText(result), showAnnotationLine: false };
+		return {
+			primary: areaPrimaryText(result),
+			themesLine: null,
+			entitiesLine: null,
+			showAnnotationLine: false
+		};
 	}
 
 	return resolveTextHighlightSubtitle(result, parsedQuery);
@@ -109,7 +142,7 @@ export function resolveFastSearchSubtitle(
 	parsedQuery: ParsedWebsearchQuery
 ): FastSearchSubtitle {
 	if (result.kind === 'document') {
-		return { primary: '', showAnnotationLine: false };
+		return resolveDocumentSubtitle(result);
 	}
 
 	return resolveHighlightSubtitle(result, parsedQuery);
