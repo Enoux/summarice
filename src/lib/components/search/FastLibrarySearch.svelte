@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
+	import { goto, preloadData } from '$app/navigation';
+	import { page } from '$app/state';
 	import {
 		Brain,
 		Command,
@@ -31,10 +32,15 @@
 	import { resolveFastSearchSubtitle } from '$lib/search/resolve-fast-search-subtitle';
 	import { parseWebsearchQuery } from '$lib/search/websearch-query';
 	import { cn } from '$lib/utils.js';
+	import { toast } from 'svelte-sonner';
 
 	type FastSearchResult =
 		| {
-				kind: 'direct_highlight' | 'summary_highlight' | 'semantic_highlight';
+				kind:
+					| 'recommended_highlight'
+					| 'direct_highlight'
+					| 'summary_highlight'
+					| 'semantic_highlight';
 				highlightId: string;
 				documentId: string;
 				documentTitle: string;
@@ -52,6 +58,8 @@
 				documentId: string;
 				documentTitle: string;
 				text: string;
+				tags: string[];
+				entities: string[];
 				href: string;
 		  };
 
@@ -78,6 +86,12 @@
 
 	const DEBOUNCE_MS = 220;
 	const OVERLAY_CLOSE_MS = 160;
+	const SEARCH_SIZE_DURATION_MS = 150;
+	const SEARCH_TEXT_ENTER_DURATION_MS = 100;
+	const SEARCH_TEXT_SETTLE_DELAY_MS = 5;
+	const SEARCH_TEXT_REVEAL_DELAY_MS =
+		SEARCH_SIZE_DURATION_MS + SEARCH_TEXT_SETTLE_DELAY_MS - SEARCH_TEXT_ENTER_DURATION_MS;
+	const prefetchedPathnames = new Set<string>();
 
 	let {
 		class: className,
@@ -93,6 +107,7 @@
 	let searchFilters = $state<FastSearchFilters>({});
 	let resultScope = $state<FastSearchResultScope>('both');
 	let rawLanes = $state<FastSearchLane[]>([]);
+	let recommendedLanes = $state<FastSearchLane[]>([]);
 	let highlightedIndex = $state(0);
 	let isSearching = $state(false);
 	let isEnrichmentSearching = $state(false);
@@ -110,26 +125,33 @@
 	let previewHoveringListbox = $state(false);
 	let isPointerOverListbox = $state(false);
 	let isMacPlatform = $state(false);
+	let navigationInFlight = $state(false);
+	let prefersReducedMotion = $state(false);
+	let shellWidthReady = $state(true);
 
 	let abortController: AbortController | null = null;
+	let recommendationAbortController: AbortController | null = null;
 	let debounceTimer: number | null = null;
 	let overlayCloseTimer: number | null = null;
+	let shellWidthReadyTimer: number | null = null;
 	let shellAnchor: HTMLDivElement | null = $state(null);
 	let searchInput: HTMLInputElement | null = $state(null);
+	let ignoreShellOpenClick = false;
+	let lastRecommendationSignature: string | null = null;
 
 	const trimmedQuery = $derived(query.trim());
 	const parsedQuery = $derived(parseWebsearchQuery(trimmedQuery));
 	const shouldSearch = $derived(Boolean(trimmedQuery));
 	const clientFilterSignature = $derived(JSON.stringify({ searchFilters, resultScope }));
+	const currentDocumentId = $derived(resolveCurrentDocumentId());
+	const displayedRawLanes = $derived(shouldSearch ? rawLanes : recommendedLanes);
 	const filteredLanes = $derived(
-		applyFastSearchClientFilters(rawLanes, searchFilters, resultScope)
+		applyFastSearchClientFilters(displayedRawLanes, searchFilters, resultScope)
 	);
 	const visibleLanes = $derived(filteredLanes.filter((lane) => lane.results.length > 0));
 	const filteredResults = $derived(visibleLanes.flatMap((lane) => lane.results));
 	const rawResultCount = $derived(countFastSearchClientResults(rawLanes));
-	const isSearchCycleActive = $derived(
-		isSearching || isEnrichmentSearching || isSemanticSearching
-	);
+	const isSearchCycleActive = $derived(isSearching || isEnrichmentSearching || isSemanticSearching);
 	const hasServerEmptyResults = $derived(
 		shouldSearch &&
 			completedQuery === trimmedQuery &&
@@ -153,16 +175,15 @@
 	);
 	const hasEmptyResults = $derived(hasServerEmptyResults || hasFilterEmptyResults);
 	const hasDropdown = $derived(
-		shouldSearch &&
-			(filteredResults.length > 0 ||
-				hasEmptyResults ||
-				(!isSearchCycleActive &&
-					(Boolean(error) || Boolean(enrichmentError) || Boolean(semanticError))))
+		(!shouldSearch && filteredResults.length > 0) ||
+			(shouldSearch &&
+				(filteredResults.length > 0 ||
+					hasEmptyResults ||
+					(!isSearchCycleActive &&
+						(Boolean(error) || Boolean(enrichmentError) || Boolean(semanticError)))))
 	);
 	const showClearControl = $derived(
-		Boolean(trimmedQuery) ||
-			hasActiveFastSearchColorFilter(searchFilters) ||
-			resultScope !== 'both'
+		Boolean(trimmedQuery) || hasActiveFastSearchColorFilter(searchFilters) || resultScope !== 'both'
 	);
 	const SEARCH_HINT_CLASS =
 		'fast-search-shortcut-hint inline-flex h-5 shrink-0 items-center justify-center gap-0.5 rounded-full border border-border bg-muted px-2 font-sans text-[10px] font-medium not-italic leading-none text-muted-foreground';
@@ -172,17 +193,17 @@
 	const panelMotion = $derived(overlayClosing ? 'exit' : expanded ? 'enter' : 'instant');
 
 	const directSearchUrl = $derived(`${searchBasePath}/search?stage=direct`);
+	const recommendedSearchUrl = $derived(`${searchBasePath}/search?stage=recommended`);
 	const enrichmentSearchUrl = $derived(`${searchBasePath}/search?stage=enrichment`);
 	const semanticSearchUrl = $derived(`${searchBasePath}/search?stage=semantic`);
 	const previewTargetPayload = $derived(
-		previewTarget
-			? { result: previewTarget, resultKey: fastSearchResultKey(previewTarget) }
-			: null
+		previewTarget ? { result: previewTarget, resultKey: fastSearchResultKey(previewTarget) } : null
 	);
 	const isKeyboardHighlightVisible = $derived(!isPointerOverListbox);
 
 	onMount(() => {
 		isMacPlatform = /Mac|iPhone|iPad|iPod/.test(navigator.platform);
+		prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 		const hoverQuery = window.matchMedia('(hover: hover) and (pointer: fine)');
 		const updateCanHoverPreview = (): void => {
@@ -212,8 +233,12 @@
 		return () => {
 			hoverQuery.removeEventListener('change', updateCanHoverPreview);
 			window.removeEventListener('keydown', handleGlobalKeydown);
+			recommendationAbortController?.abort();
 			if (overlayCloseTimer !== null) {
 				clearTimeout(overlayCloseTimer);
+			}
+			if (shellWidthReadyTimer !== null) {
+				clearTimeout(shellWidthReadyTimer);
 			}
 		};
 	});
@@ -233,6 +258,25 @@
 		}
 	});
 
+	$effect(() => {
+		const signature = JSON.stringify({ currentDocumentId, recommendedSearchUrl });
+		if (signature === lastRecommendationSignature) {
+			return;
+		}
+
+		lastRecommendationSignature = signature;
+		void fetchRecommendedLanes(currentDocumentId);
+	});
+
+	function resolveCurrentDocumentId(): string | null {
+		if (!page.url.pathname.startsWith('/doc/')) {
+			return null;
+		}
+
+		const documentId = page.params.id;
+		return typeof documentId === 'string' && documentId.trim().length > 0 ? documentId : null;
+	}
+
 	function clearPagePreview(): void {
 		previewHoveringListbox = false;
 		previewTarget = null;
@@ -245,16 +289,62 @@
 		}
 	}
 
+	function cancelShellWidthReadyTimer(): void {
+		if (shellWidthReadyTimer !== null) {
+			clearTimeout(shellWidthReadyTimer);
+			shellWidthReadyTimer = null;
+		}
+	}
+
+	function markShellWidthReady(): void {
+		cancelShellWidthReadyTimer();
+		shellWidthReady = true;
+	}
+
+	function scheduleShellWidthReadyFallback(): void {
+		cancelShellWidthReadyTimer();
+		shellWidthReadyTimer = window.setTimeout(() => {
+			markShellWidthReady();
+		}, SEARCH_TEXT_REVEAL_DELAY_MS);
+	}
+
+	function beginShellWidthOpen(): void {
+		if (prefersReducedMotion) {
+			shellWidthReady = true;
+			return;
+		}
+		shellWidthReady = false;
+		scheduleShellWidthReadyFallback();
+	}
+
+	function handleShellTransitionEnd(event: TransitionEvent): void {
+		if (event.propertyName !== 'width' || !expanded || shellWidthReady) {
+			return;
+		}
+		markShellWidthReady();
+	}
+
 	function openExpanded(): void {
 		cancelOverlayCloseTimer();
 		overlayClosing = false;
+		beginShellWidthOpen();
 		expanded = true;
+	}
+
+	function scheduleIgnoreShellOpenClickReset(): void {
+		ignoreShellOpenClick = true;
+		window.setTimeout(() => {
+			ignoreShellOpenClick = false;
+		}, 0);
 	}
 
 	function closeExpanded(): void {
 		if (!expanded) {
 			return;
 		}
+		cancelShellWidthReadyTimer();
+		shellWidthReady = true;
+		scheduleIgnoreShellOpenClickReset();
 		expanded = false;
 		searchInput?.blur();
 		overlayClosing = true;
@@ -274,13 +364,21 @@
 		previewHoveringListbox = true;
 	}
 
-	function handleListboxMouseMove(event: MouseEvent): void {
-		if (!canHoverPreview) {
+	function resultPathname(href: string): string {
+		const hashIndex = href.indexOf('#');
+		return hashIndex >= 0 ? href.slice(0, hashIndex) : href;
+	}
+
+	function prefetchResultRoute(result: FastSearchResult): void {
+		const pathname = resultPathname(result.href);
+		if (prefetchedPathnames.has(pathname)) {
 			return;
 		}
-		previewHoveringListbox = true;
-		previewCursorX = event.clientX;
-		previewCursorY = event.clientY;
+		prefetchedPathnames.add(pathname);
+		void preloadData(pathname);
+	}
+
+	function handleListboxMouseMove(event: MouseEvent): void {
 		const eventTarget = event.target;
 		if (!(eventTarget instanceof Element)) {
 			return;
@@ -297,6 +395,17 @@
 		if (!result) {
 			return;
 		}
+		const resultKey = fastSearchResultKey(result);
+		const previousKey = previewTarget ? fastSearchResultKey(previewTarget) : null;
+		if (resultKey !== previousKey) {
+			prefetchResultRoute(result);
+		}
+		if (!canHoverPreview) {
+			return;
+		}
+		previewHoveringListbox = true;
+		previewCursorX = event.clientX;
+		previewCursorY = event.clientY;
 		previewTarget = result;
 	}
 
@@ -323,6 +432,28 @@
 		isSemanticSearching = false;
 		completedQuery = null;
 		completedClientFilterSignature = null;
+	}
+
+	async function fetchRecommendedLanes(documentId: string | null): Promise<void> {
+		recommendationAbortController?.abort();
+		const controller = new AbortController();
+		recommendationAbortController = controller;
+
+		try {
+			const response = await fetchSearch(recommendedSearchUrl, '', controller, null, documentId);
+			if (controller.signal.aborted) {
+				return;
+			}
+
+			recommendedLanes = normalizeLanes(response);
+			if (!shouldSearch) {
+				highlightedIndex = 0;
+			}
+		} catch (searchError) {
+			if (controller.signal.aborted) return;
+			void searchError;
+			recommendedLanes = [];
+		}
 	}
 
 	function clearSearch(): void {
@@ -431,10 +562,7 @@
 
 					rawLanes = normalizeLanes(semanticResponse);
 					const semanticMerged = filteredResults;
-					highlightedIndex = Math.min(
-						highlightedIndex,
-						Math.max(semanticMerged.length - 1, 0)
-					);
+					highlightedIndex = Math.min(highlightedIndex, Math.max(semanticMerged.length - 1, 0));
 					completedQuery = currentQuery;
 					completedClientFilterSignature = clientFilterSignature;
 				} catch (searchError) {
@@ -465,7 +593,8 @@
 		url: string,
 		currentQuery: string,
 		controller: AbortController,
-		previousResponse: FastSearchResponse | null
+		previousResponse: FastSearchResponse | null,
+		requestCurrentDocumentId: string | null = null
 	): Promise<FastSearchResponse> {
 		const response = await fetch(url, {
 			method: 'POST',
@@ -474,7 +603,8 @@
 				query: currentQuery,
 				filters: searchFilters,
 				resultScope,
-				previousResponse
+				previousResponse,
+				currentDocumentId: requestCurrentDocumentId
 			}),
 			signal: controller.signal
 		});
@@ -497,10 +627,7 @@
 		if (event.key === 'ArrowDown') {
 			event.preventDefault();
 			isPointerOverListbox = false;
-			highlightedIndex = Math.min(
-				highlightedIndex + 1,
-				Math.max(filteredResults.length - 1, 0)
-			);
+			highlightedIndex = Math.min(highlightedIndex + 1, Math.max(filteredResults.length - 1, 0));
 		}
 
 		if (event.key === 'ArrowUp') {
@@ -522,8 +649,19 @@
 	}
 
 	async function openResult(result: FastSearchResult): Promise<void> {
-		// eslint-disable-next-line svelte/no-navigation-without-resolve -- destination path comes from search API at runtime
-		await goto(result.href);
+		if (navigationInFlight) {
+			return;
+		}
+		navigationInFlight = true;
+		closeExpanded();
+		try {
+			// eslint-disable-next-line svelte/no-navigation-without-resolve -- destination path comes from search API at runtime
+			await goto(result.href);
+		} catch (navError) {
+			toast.error(navError instanceof Error ? navError.message : 'Could not open that result.');
+		} finally {
+			navigationInFlight = false;
+		}
 	}
 
 	function resultIcon(result: FastSearchResult): Component<{ class?: string }> {
@@ -582,7 +720,9 @@
 		class="fast-search-shell"
 		data-expanded={expanded}
 		data-closing={overlayClosing}
+		data-width-ready={shellWidthReady}
 		data-motion={panelMotion}
+		ontransitionend={handleShellTransitionEnd}
 		role={expanded ? 'combobox' : 'button'}
 		tabindex={expanded ? undefined : 0}
 		aria-label={expanded ? undefined : 'Search your library'}
@@ -591,6 +731,9 @@
 		aria-controls={expanded && hasDropdown ? 'fast-search-results' : undefined}
 		onclick={(event) => {
 			if (!expanded) {
+				if (ignoreShellOpenClick) {
+					return;
+				}
 				event.preventDefault();
 				openExpanded();
 			}
@@ -603,10 +746,7 @@
 		}}
 	>
 		<div class="fast-search-input-row">
-			<Search
-				class="size-3.5 shrink-0 text-muted-foreground"
-				aria-hidden="true"
-			/>
+			<Search class="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
 			<input
 				bind:this={searchInput}
 				bind:value={query}
@@ -625,11 +765,7 @@
 				spellcheck="false"
 			/>
 			<div class="fast-search-trailing">
-				<span
-					class="fast-search-trailing-kbd"
-					data-visible={!expanded}
-					aria-hidden={expanded}
-				>
+				<span class="fast-search-trailing-kbd" data-visible={!expanded} aria-hidden={expanded}>
 					<span
 						class={cn(SEARCH_HINT_CLASS, 'pointer-events-none hidden sm:inline-flex')}
 						aria-hidden="true"
@@ -642,11 +778,7 @@
 						{/if}
 					</span>
 				</span>
-				<span
-					class="fast-search-trailing-expanded"
-					data-visible={expanded}
-					aria-hidden={!expanded}
-				>
+				<span class="fast-search-trailing-expanded" data-visible={expanded} aria-hidden={!expanded}>
 					{#if isSearchCycleActive}
 						<Loader2
 							class="size-4 shrink-0 animate-spin text-muted-foreground"
@@ -655,7 +787,7 @@
 					{:else if showClearControl}
 						<button
 							type="button"
-							class="shrink-0 rounded-full p-0.5 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.97] motion-reduce:active:scale-100"
+							class="shrink-0 rounded-full p-0.5 text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none active:scale-[0.97] motion-reduce:active:scale-100"
 							aria-label="Clear search"
 							onclick={clearSearch}
 						>
@@ -666,7 +798,7 @@
 						type="button"
 						class={cn(
 							SEARCH_HINT_CLASS,
-							'pointer-events-auto hidden transition-[transform,background-color] duration-150 ease-out hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.97] motion-reduce:active:scale-100 sm:inline-flex'
+							'pointer-events-auto hidden transition-[transform,background-color] duration-150 ease-out hover:bg-muted/80 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none active:scale-[0.97] motion-reduce:active:scale-100 sm:inline-flex'
 						)}
 						aria-label="Close search"
 						onclick={closeExpanded}
@@ -677,16 +809,9 @@
 			</div>
 		</div>
 
-		<div
-			class="fast-search-shell-body"
-			aria-hidden={!expanded && !overlayClosing}
-		>
+		<div class="fast-search-shell-body" aria-hidden={!expanded && !overlayClosing}>
 			<div class="fast-search-shell-body-inner">
-				<div
-					class="fast-search-chips px-4 pb-2"
-					data-expanded={expanded}
-					data-motion={panelMotion}
-				>
+				<div class="fast-search-chips px-4 pb-2" data-expanded={expanded} data-motion={panelMotion}>
 					<FastLibrarySearchFilterChips
 						bind:resultScope
 						bind:searchFilters
@@ -697,7 +822,7 @@
 				{#if hasDropdown}
 					<div
 						id="fast-search-results"
-						class="fast-search-results minimal-scrollbar touch-pan-y max-h-[min(32rem,calc(100svh-18rem-max(env(safe-area-inset-bottom,0px),12px)))] overflow-y-auto overflow-x-hidden overscroll-y-contain border-t border-border px-2 py-1.5 [scrollbar-gutter:stable] sm:max-h-[min(36rem,calc(100svh-16rem-max(env(safe-area-inset-bottom,0px),12px)))]"
+						class="fast-search-results minimal-scrollbar max-h-[min(32rem,calc(100svh-18rem-max(env(safe-area-inset-bottom,0px),12px)))] touch-pan-y overflow-x-hidden overflow-y-auto overscroll-y-contain border-t border-border px-2 py-2 [scrollbar-gutter:stable] sm:max-h-[min(36rem,calc(100svh-16rem-max(env(safe-area-inset-bottom,0px),12px)))]"
 						role="listbox"
 						aria-label="Search results"
 						tabindex="-1"
@@ -706,13 +831,15 @@
 						onmouseleave={handleListboxMouseLeave}
 					>
 						{#if error}
-							<div class={SEARCH_ERROR_MESSAGE_CLASS} role="alert">{error}</div>
+							<div class="{SEARCH_ERROR_MESSAGE_CLASS} fast-search-deferred-text" role="alert">
+								{error}
+							</div>
 						{:else if hasFilterEmptyResults}
-							<div class={SEARCH_STATUS_MESSAGE_CLASS}>
+							<div class="{SEARCH_STATUS_MESSAGE_CLASS} fast-search-deferred-text">
 								No results match your filters.
 							</div>
 						{:else if hasServerEmptyResults}
-							<div class={SEARCH_STATUS_MESSAGE_CLASS}>
+							<div class="{SEARCH_STATUS_MESSAGE_CLASS} fast-search-deferred-text">
 								No matching highlights found.
 							</div>
 						{:else}
@@ -721,7 +848,9 @@
 									<Separator class="my-2" />
 								{/if}
 								<div class="px-1" role="group" aria-label={lane.label}>
-									<p class="px-2 py-1.5 text-sm font-medium leading-snug text-muted-foreground">
+									<p
+										class="fast-search-deferred-text px-2 py-1.5 text-sm leading-snug font-medium text-muted-foreground"
+									>
 										{lane.label}
 									</p>
 									{#each lane.results as result (fastSearchResultKey(result))}
@@ -734,12 +863,12 @@
 										<button
 											type="button"
 											data-fast-search-result-key={fastSearchResultKey(result)}
-											class="grid w-full grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5 rounded-lg px-2 py-3 text-left transition-[background-color,transform] duration-150 ease-out hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.99] motion-reduce:active:scale-100 motion-reduce:transition-none"
-											class:bg-muted={isKeyboardHighlightVisible &&
-												index === highlightedIndex}
+											class="grid w-full grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5 rounded-lg p-3 text-left transition-[background-color,transform] duration-150 ease-out hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none active:scale-[0.99] disabled:pointer-events-none disabled:opacity-60 motion-reduce:transition-none motion-reduce:active:scale-100"
+											class:bg-muted={isKeyboardHighlightVisible && index === highlightedIndex}
 											role="option"
-											aria-selected={isKeyboardHighlightVisible &&
-												index === highlightedIndex}
+											aria-selected={isKeyboardHighlightVisible && index === highlightedIndex}
+											aria-busy={navigationInFlight}
+											disabled={navigationInFlight}
 											onclick={() => openResult(result)}
 										>
 											<span
@@ -759,26 +888,57 @@
 												class="col-start-2 row-start-1 flex min-w-0 items-start justify-between gap-2"
 											>
 												<span
-													class="min-w-0 flex-1 text-sm font-semibold leading-snug text-foreground"
+													class="fast-search-deferred-text min-w-0 flex-1 text-sm leading-snug font-semibold text-foreground"
 												>
 													{result.documentTitle}
 												</span>
 												{#if result.kind !== 'document'}
-													<Badge variant="secondary" class="shrink-0 tabular-nums">
+													<Badge
+														variant="secondary"
+														class="fast-search-deferred-text shrink-0 tabular-nums"
+													>
 														p. {result.pageNumber}
 													</Badge>
 												{/if}
 											</span>
-											{#if subtitle.primary.length > 0}
+											{#if result.kind === 'document'}
+												{#if subtitle.themesLine || subtitle.entitiesLine || subtitle.primary.length > 0}
+													<span
+														class="col-start-2 flex min-w-0 flex-col gap-1.5"
+													>
+														{#if subtitle.themesLine}
+															<span
+																class="fast-search-deferred-text truncate text-sm leading-snug text-muted-foreground"
+															>
+																{subtitle.themesLine}
+															</span>
+														{/if}
+														{#if subtitle.entitiesLine}
+															<span
+																class="fast-search-deferred-text truncate text-sm leading-snug text-muted-foreground"
+															>
+																{subtitle.entitiesLine}
+															</span>
+														{/if}
+														{#if subtitle.primary.length > 0}
+															<span
+																class="fast-search-deferred-text [display:-webkit-box] min-w-0 overflow-hidden text-sm leading-snug text-muted-foreground [-webkit-box-orient:vertical] [-webkit-line-clamp:2]"
+															>
+																{subtitle.primary}
+															</span>
+														{/if}
+													</span>
+												{/if}
+											{:else if subtitle.primary.length > 0}
 												<p
-													class="col-span-2 min-w-0 overflow-hidden text-sm leading-snug text-muted-foreground [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]"
+													class="fast-search-deferred-text col-span-2 [display:-webkit-box] min-w-0 overflow-hidden text-sm leading-snug text-muted-foreground [-webkit-box-orient:vertical] [-webkit-line-clamp:2]"
 												>
 													{subtitle.primary}
 												</p>
 											{/if}
 											{#if subtitle.showAnnotationLine && result.kind !== 'document' && result.annotationPreview}
 												<p
-													class="col-span-2 min-w-0 overflow-hidden text-sm leading-snug text-muted-foreground [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]"
+													class="fast-search-deferred-text col-span-2 [display:-webkit-box] min-w-0 overflow-hidden text-sm leading-snug text-muted-foreground [-webkit-box-orient:vertical] [-webkit-line-clamp:2]"
 												>
 													Note: {result.annotationPreview}
 												</p>
@@ -788,10 +948,14 @@
 								</div>
 							{/each}
 							{#if enrichmentError}
-								<div class={SEARCH_STATUS_MESSAGE_CLASS}>{enrichmentError}</div>
+								<div class="{SEARCH_STATUS_MESSAGE_CLASS} fast-search-deferred-text">
+									{enrichmentError}
+								</div>
 							{/if}
 							{#if semanticError}
-								<div class={SEARCH_STATUS_MESSAGE_CLASS}>{semanticError}</div>
+								<div class="{SEARCH_STATUS_MESSAGE_CLASS} fast-search-deferred-text">
+									{semanticError}
+								</div>
 							{/if}
 						{/if}
 					</div>
@@ -815,8 +979,28 @@
 		position: relative;
 		display: flex;
 		justify-content: center;
-		min-height: 2.25rem;
+		min-height: calc(2.25rem + 2px);
 		min-width: 2.25rem;
+	}
+
+	/* Hold navbar slot while the shell is out of flow (absolute) */
+	.fast-search-root:has(.fast-search-shell[data-expanded='true'])::before,
+	.fast-search-root:has(.fast-search-shell[data-closing='true'])::before {
+		content: '';
+		display: block;
+		width: 2.25rem;
+		height: calc(2.25rem + 2px);
+		flex-shrink: 0;
+		visibility: hidden;
+		pointer-events: none;
+	}
+
+	@media (min-width: 640px) {
+		.fast-search-root:has(.fast-search-shell[data-expanded='true'])::before,
+		.fast-search-root:has(.fast-search-shell[data-closing='true'])::before {
+			width: 17rem;
+			max-width: min(28rem, 42vw);
+		}
 	}
 
 	.fast-search-root:has(.fast-search-shell[data-expanded='true']),
@@ -833,15 +1017,21 @@
 	/* Resting: compact pill in navbar; expands downward in place */
 	.fast-search-shell {
 		--fast-search-size-duration: 150ms;
-		--fast-search-radius-duration: 50ms;
+		--fast-search-radius-duration: 0ms;
 		--fast-search-body-delay: 0ms;
 		--fast-search-body-duration: 150ms;
+		--fast-search-text-enter-duration: 100ms;
+		--fast-search-text-settle-delay: 5ms;
+		--fast-search-text-reveal-delay: calc(
+			var(--fast-search-size-duration) + var(--fast-search-text-settle-delay) -
+				var(--fast-search-text-enter-duration)
+		);
 		display: flex;
 		flex-direction: column;
 		width: 2.25rem;
 		overflow: hidden;
 		border: 1px solid var(--border);
-		border-radius: 999px;
+		border-radius: 9999px;
 		background: var(--card);
 		box-shadow: 0 1px 2px rgb(0 0 0 / 4%);
 		transform-origin: top center;
@@ -876,10 +1066,9 @@
 			0 2px 4px -2px rgb(0 0 0 / 6%);
 	}
 
-	/* Close: shrink width/radius in parallel with body collapse */
+	/* Close: shrink width in parallel with body collapse */
 	.fast-search-shell[data-closing='true']:not([data-expanded='true']) {
 		width: 2.25rem;
-		border-radius: 9999px;
 		box-shadow: 0 1px 2px rgb(0 0 0 / 4%);
 	}
 
@@ -895,15 +1084,24 @@
 		--fast-search-body-duration: 150ms;
 	}
 
-	.fast-search-shell[data-motion='exit'],
 	.fast-search-shell[data-closing='true'] {
 		--fast-search-size-duration: 150ms;
-		--fast-search-radius-duration: 150ms;
 		--fast-search-body-duration: 150ms;
+	}
+
+	.fast-search-shell[data-motion='exit'] {
+		--fast-search-size-duration: 150ms;
+		--fast-search-radius-duration: 4000ms;
+		--fast-search-body-duration: 150ms;
+		border-radius: 9999px;
 		transition:
 			width var(--fast-search-size-duration) var(--ease-out-strong),
 			border-radius var(--fast-search-radius-duration) var(--ease-out-strong),
 			box-shadow var(--fast-search-size-duration) var(--ease-out-strong);
+
+		@starting-style {
+			border-radius: 1rem;
+		}
 	}
 
 	.fast-search-input-row {
@@ -970,7 +1168,6 @@
 	}
 
 	.fast-search-shell[data-expanded='true'] .fast-search-input-row {
-		min-height: 2.5rem;
 		gap: 0.625rem;
 		padding: 0 0.875rem;
 	}
@@ -987,7 +1184,8 @@
 		pointer-events: none;
 	}
 
-	.fast-search-shell:not([data-expanded='true']):not([data-closing='true']) .fast-search-shell-body {
+	.fast-search-shell:not([data-expanded='true']):not([data-closing='true'])
+		.fast-search-shell-body {
 		pointer-events: none;
 	}
 
@@ -995,18 +1193,36 @@
 		display: grid;
 		grid-template-rows: 0fr;
 		opacity: 0;
-		transform: translateY(-4px);
 		transition:
 			grid-template-rows var(--fast-search-body-duration) var(--ease-out-strong)
 				var(--fast-search-body-delay),
-			opacity var(--fast-search-body-duration) var(--ease-out-strong) var(--fast-search-body-delay),
-			transform var(--fast-search-body-duration) var(--ease-out-strong) var(--fast-search-body-delay);
+			opacity var(--fast-search-body-duration) var(--ease-out-strong) var(--fast-search-body-delay);
 	}
 
 	.fast-search-shell[data-expanded='true'] .fast-search-shell-body {
 		grid-template-rows: 1fr;
 		opacity: 1;
-		transform: translateY(0);
+	}
+
+	.fast-search-shell[data-expanded='true'][data-width-ready='false'] .fast-search-deferred-text {
+		opacity: 0;
+		visibility: hidden;
+		animation: none;
+	}
+
+	.fast-search-shell[data-expanded='true'][data-width-ready='true'] .fast-search-deferred-text {
+		visibility: visible;
+		animation: fast-search-text-in var(--fast-search-text-enter-duration) var(--ease-out-strong)
+			both;
+	}
+
+	@keyframes fast-search-text-in {
+		from {
+			opacity: 0;
+		}
+		to {
+			opacity: 1;
+		}
 	}
 
 	.fast-search-shell[data-motion='exit'] .fast-search-shell-body,
@@ -1037,17 +1253,28 @@
 		animation: fast-search-chip-in 200ms var(--ease-out-strong) backwards;
 	}
 
-	.fast-search-chips[data-motion='enter'][data-expanded='true'] :global([role='group'] > *:nth-child(1)) {
+	.fast-search-chips[data-motion='enter'][data-expanded='true']
+		:global([role='group'] > *:nth-child(1)) {
 		animation-delay: 0ms;
 	}
 
-	.fast-search-chips[data-motion='enter'][data-expanded='true'] :global([role='group'] > *:nth-child(2)) {
+	.fast-search-chips[data-motion='enter'][data-expanded='true']
+		:global([role='group'] > *:nth-child(2)) {
 		animation-delay: 24ms;
 	}
 
+	.fast-search-chips[data-motion='exit'] {
+		opacity: 0;
+		transform: translateY(-2px);
+		transition:
+			opacity 40ms var(--ease-out-strong),
+			transform 40ms var(--ease-out-strong);
+		pointer-events: none;
+	}
+
 	.fast-search-chips[data-motion='exit'] :global([role='group'] > *) {
-		animation: fast-search-chip-out 80ms var(--ease-out-strong) forwards;
-		animation-delay: 0ms;
+		animation: none;
+		opacity: 0;
 	}
 
 	@keyframes fast-search-chip-in {
@@ -1061,17 +1288,6 @@
 		}
 	}
 
-	@keyframes fast-search-chip-out {
-		from {
-			opacity: 1;
-			transform: translateY(0);
-		}
-		to {
-			opacity: 0;
-			transform: translateY(-4px);
-		}
-	}
-
 	@media (prefers-reduced-motion: reduce) {
 		.fast-search-shell,
 		.fast-search-shell-body,
@@ -1079,16 +1295,21 @@
 		.fast-search-input-row,
 		.fast-search-trailing-kbd,
 		.fast-search-trailing-expanded {
-			transition: opacity 120ms ease;
+			transition:
+				opacity 120ms ease,
+				border-radius 120ms ease;
 		}
 
-		.fast-search-shell-body {
-			transform: none;
-		}
-
-		.fast-search-chips[data-motion='enter'][data-expanded='true'] :global([role='group'] > *),
-		.fast-search-chips[data-motion='exit'] :global([role='group'] > *) {
+		.fast-search-deferred-text {
 			animation: none;
+		}
+
+		.fast-search-chips[data-motion='enter'][data-expanded='true'] :global([role='group'] > *) {
+			animation: none;
+		}
+
+		.fast-search-chips[data-motion='exit'] {
+			transition: opacity 40ms ease;
 		}
 	}
 </style>
