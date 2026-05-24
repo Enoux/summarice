@@ -123,6 +123,7 @@
 		normalizeZoomScale,
 		normalizeZoomValue
 	} from '$lib/pdf-highlighter/lib/zoom';
+	import { mergePdfHighlighterUtils } from '$lib/pdf-highlighter/lib/pdf-highlighter-utils-merge';
 	import { TIP_CONTAINER_SELECTOR } from '$lib/pdf-highlighter/lib/tip-hover-contract';
 
 	type PointerEventHandler = (
@@ -717,19 +718,25 @@
 			pulseHighlight(id);
 		},
 
-		scrollToHighlight: function (highlight: Highlight, useFlash = true) {
-			if (!highlight.position?.boundingRect || !viewerRef) return;
+		scrollToHighlight: function (
+			highlight: Highlight,
+			useFlash: boolean | undefined,
+			behavior: ScrollBehavior | undefined
+		) {
+			if (!highlight.position?.boundingRect || !viewerRef) return false;
+			const shouldFlash: boolean = useFlash ?? true;
+			const scrollBehavior: ScrollBehavior = behavior ?? 'smooth';
 			const { boundingRect, usePdfCoordinates } = highlight.position;
 			const pageNumber = boundingRect.pageNumber;
 
 			const pageView = viewerRef.getPageView(pageNumber - 1);
 			const pageViewport = pageView?.viewport;
 			const pageElement = pageView?.div as HTMLElement | undefined;
-			if (!pageViewport || !pageElement) return;
+			if (!pageViewport || !pageElement) return false;
 
 			// Remove scroll listener in case user auto-scrolls in succession.
 			viewerRef.container.removeEventListener('scroll', handleScroll);
-			if (useFlash && highlight.id) {
+			if (shouldFlash && highlight.id) {
 				this.scrolledToHighlightIdRef = highlight.id;
 			}
 
@@ -753,10 +760,10 @@
 
 			if (shouldScroll && !isSameActiveTarget) {
 				activeScrollTargetRef = { highlightId: highlight.id, targetTop };
-				container.scrollTo({ top: targetTop, behavior: 'smooth' });
+				container.scrollTo({ top: targetTop, behavior: scrollBehavior });
 			}
 
-			if (useFlash) {
+			if (shouldFlash) {
 				if (clearScrollFlashTimeout) clearTimeout(clearScrollFlashTimeout);
 				clearScrollFlashTimeout = setTimeout(() => {
 					viewerRef?.container.addEventListener('scroll', handleScroll, {
@@ -767,6 +774,7 @@
 					activeScrollTargetRef = null;
 				}, 800); // 800ms for a more visible flash
 			}
+			return true;
 		},
 		scrolledToHighlightIdRef: '',
 		goToPage: function (pageNumber: number) {
@@ -850,7 +858,10 @@
 
 	// We use Object.defineProperties to ensure getters remain reactive and are not evaluated during spread
 	pdfHighlighterUtils = Object.defineProperties(
-		{ ...baseUtils, ...pdfHighlighterUtils },
+		mergePdfHighlighterUtils({
+			baseUtils,
+			incomingUtils: pdfHighlighterUtils
+		}),
 		{
 			hoveredHighlightId: {
 				get: () => highlightsStore.hoveredHighlightId,
@@ -892,7 +903,7 @@
 				configurable: true
 			}
 		}
-	) as TPdfHighlighterUtils;
+	) as unknown as TPdfHighlighterUtils;
 
 	let derived_style = $derived.by(() => {
 		const cursor = pdfHighlighterUtils.selectedTool == 'hand' ? 'cursor: grab;' : '';

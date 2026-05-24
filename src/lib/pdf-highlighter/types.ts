@@ -282,7 +282,7 @@ export type LeftPanelTab = 'outline' | 'thumbnails';
 export type PdfHighlighterUtils = {
 	isSelectionInProgress(): boolean;
 
-	scrollToHighlight(highlight: Highlight, useFlash?: boolean): void;
+	scrollToHighlight(highlight: Highlight, useFlash?: boolean, behavior?: ScrollBehavior): boolean;
 	pulseHighlight(id: string): void;
 	scrolledToHighlightIdRef?: string | null;
 
