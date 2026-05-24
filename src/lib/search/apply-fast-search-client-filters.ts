@@ -4,10 +4,10 @@ import type {
 	FastSearchResultScope
 } from '$lib/search/fast-search-types';
 
-export type FastSearchClientLaneId = 'direct' | 'summary' | 'semantic' | 'document';
+export type FastSearchClientLaneId = 'recommended' | 'direct' | 'summary' | 'semantic' | 'document';
 
 export type FastSearchClientHighlightResult = {
-	kind: 'direct_highlight' | 'summary_highlight' | 'semantic_highlight';
+	kind: 'recommended_highlight' | 'direct_highlight' | 'summary_highlight' | 'semantic_highlight';
 	highlightId: string;
 	documentId: string;
 	documentTitle: string;
@@ -26,6 +26,8 @@ export type FastSearchClientDocumentResult = {
 	documentId: string;
 	documentTitle: string;
 	text: string;
+	tags: string[];
+	entities: string[];
 	href: string;
 };
 

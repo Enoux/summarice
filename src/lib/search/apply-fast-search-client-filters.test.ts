@@ -5,7 +5,7 @@ import {
 } from '$lib/search/apply-fast-search-client-filters';
 
 function highlightLane(
-	id: 'direct' | 'summary' | 'semantic',
+	id: 'recommended' | 'direct' | 'summary' | 'semantic',
 	highlightId: string,
 	color: string
 ): FastSearchClientLane {
@@ -41,6 +41,8 @@ function documentLane(): FastSearchClientLane {
 				documentId: 'doc-2',
 				documentTitle: 'Other Doc',
 				text: 'summary snippet',
+				tags: [],
+				entities: [],
 				href: '/doc/doc-2'
 			}
 		]
@@ -49,6 +51,7 @@ function documentLane(): FastSearchClientLane {
 
 describe('applyFastSearchClientFilters', () => {
 	const lanes: FastSearchClientLane[] = [
+		highlightLane('recommended', 'h-recommended', '#facc15'),
 		highlightLane('direct', 'h-yellow', '#facc15'),
 		highlightLane('summary', 'h-blue', '#3b82f6'),
 		documentLane()
@@ -57,6 +60,7 @@ describe('applyFastSearchClientFilters', () => {
 	it('keeps all lanes when scope is both and no color filter', () => {
 		const filtered = applyFastSearchClientFilters(lanes, {}, 'both');
 		expect(filtered.map((lane) => [lane.id, lane.results.length])).toEqual([
+			['recommended', 1],
 			['direct', 1],
 			['summary', 1],
 			['document', 1]
@@ -65,7 +69,7 @@ describe('applyFastSearchClientFilters', () => {
 
 	it('limits to highlight lanes when scope is highlights', () => {
 		const filtered = applyFastSearchClientFilters(lanes, {}, 'highlights');
-		expect(filtered.map((lane) => lane.id)).toEqual(['direct', 'summary']);
+		expect(filtered.map((lane) => lane.id)).toEqual(['recommended', 'direct', 'summary']);
 	});
 
 	it('limits to document lane when scope is documents', () => {
@@ -77,14 +81,16 @@ describe('applyFastSearchClientFilters', () => {
 		const filtered = applyFastSearchClientFilters(lanes, { color: '#facc15' }, 'both');
 		expect(filtered).toEqual([
 			{ ...lanes[0], results: [lanes[0].results[0]] },
-			{ ...lanes[1], results: [] },
-			lanes[2]
+			{ ...lanes[1], results: [lanes[1].results[0]] },
+			{ ...lanes[2], results: [] },
+			lanes[3]
 		]);
 	});
 
 	it('applies color filter within highlights scope', () => {
 		const filtered = applyFastSearchClientFilters(lanes, { color: '#3b82f6' }, 'highlights');
 		expect(filtered.map((lane) => [lane.id, lane.results.length])).toEqual([
+			['recommended', 0],
 			['direct', 0],
 			['summary', 1]
 		]);
