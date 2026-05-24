@@ -1,6 +1,6 @@
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
-import { embed, embedMany, generateText, streamObject, streamText } from 'ai';
-import type { ModelMessage, UserModelMessage } from 'ai';
+import { embed, embedMany, generateText, Output, streamObject, streamText } from 'ai';
+import type { FlexibleSchema, ModelMessage, UserModelMessage } from 'ai';
 
 import {
 	estimateCostUsd,
@@ -76,6 +76,10 @@ export function createOpenRouterLLMProvider(options: OpenRouterLLMProviderOption
 		return AbortSignal.any([callerSignal, timeout]);
 	}
 
+	function structuredOutput(schema: unknown) {
+		return Output.object({ schema: schema as FlexibleSchema<unknown> });
+	}
+
 	async function generate<T = unknown>(
 		generateOptions: LLMGenerateOptions
 	): Promise<LLMGenerateResult<T>> {
@@ -93,7 +97,9 @@ export function createOpenRouterLLMProvider(options: OpenRouterLLMProviderOption
 					system: generateOptions.system,
 					messages: generateOptions.messages,
 					tools: generateOptions.tools,
-					output: generateOptions.schema as never,
+					...(generateOptions.schema
+						? { output: structuredOutput(generateOptions.schema) }
+						: {}),
 					providerOptions: generateOptions.providerOptions,
 					temperature: generateOptions.temperature,
 					maxOutputTokens: generateOptions.maxOutputTokens,
@@ -103,7 +109,7 @@ export function createOpenRouterLLMProvider(options: OpenRouterLLMProviderOption
 				return {
 					value: {
 						text: result.text,
-						object: 'object' in result ? (result.object as T | undefined) : undefined,
+						object: generateOptions.schema ? (result.output as T | undefined) : undefined,
 						usage: usageFromLanguageModelUsage(result.usage)
 					},
 					usage: usageFromLanguageModelUsage(result.usage),
@@ -131,7 +137,7 @@ export function createOpenRouterLLMProvider(options: OpenRouterLLMProviderOption
 			system: streamOptions.system,
 			messages: streamOptions.messages,
 			tools: streamOptions.tools,
-			output: streamOptions.schema as never,
+			...(streamOptions.schema ? { output: structuredOutput(streamOptions.schema) } : {}),
 			providerOptions: streamOptions.providerOptions,
 			temperature: streamOptions.temperature,
 			maxOutputTokens: streamOptions.maxOutputTokens,
