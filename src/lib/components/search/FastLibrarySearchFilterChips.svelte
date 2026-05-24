@@ -21,10 +21,12 @@
 	let {
 		resultScope = $bindable('both' as FastSearchResultScope),
 		searchFilters = $bindable({} as FastSearchFilters),
+		disabled = false,
 		onClientFilterChange
 	}: {
 		resultScope?: FastSearchResultScope;
 		searchFilters?: FastSearchFilters;
+		disabled?: boolean;
 		onClientFilterChange: () => void;
 	} = $props();
 
@@ -50,11 +52,17 @@
 	const showColorChip = $derived(resultScope !== 'documents');
 
 	function selectScope(scope: FastSearchResultScope): void {
+		if (disabled) {
+			return;
+		}
 		resultScope = scope;
 		onClientFilterChange();
 	}
 
 	function clearColorFilter(): void {
+		if (disabled) {
+			return;
+		}
 		const nextFilters = { ...searchFilters };
 		delete nextFilters.color;
 		searchFilters = nextFilters;
@@ -62,12 +70,23 @@
 	}
 
 	function selectColor(hex: string): void {
+		if (disabled) {
+			return;
+		}
 		searchFilters = { ...searchFilters, color: hex };
 		onClientFilterChange();
 	}
 </script>
 
-<div class="flex flex-wrap items-center gap-2 pb-0.5" role="group" aria-label="Search filters">
+<div
+	class={cn(
+		'flex flex-wrap items-center gap-2 pb-0.5',
+		disabled && 'pointer-events-none opacity-50'
+	)}
+	role="group"
+	aria-label="Search filters"
+	aria-disabled={disabled}
+>
 	<DropdownMenu.Root>
 		<DropdownMenu.Trigger>
 			{#snippet child({ props })}

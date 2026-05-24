@@ -13,6 +13,7 @@
 	} from '@lucide/svelte';
 	import type { Component } from 'svelte';
 	import { onMount, tick } from 'svelte';
+	import FastDeepModeToggle from '$lib/components/search/FastDeepModeToggle.svelte';
 	import FastLibrarySearchFilterChips from '$lib/components/search/FastLibrarySearchFilterChips.svelte';
 	import FastSearchPagePreview from '$lib/components/search/FastSearchPagePreview.svelte';
 	import { Badge } from '$lib/components/ui/badge/index.js';
@@ -23,6 +24,15 @@
 		type FastSearchClientLane,
 		type FastSearchClientResult
 	} from '$lib/search/apply-fast-search-client-filters';
+	import { readStoredDeepLibrarySearchMode } from '$lib/search/deep-library-search-helpers';
+	import {
+		DEEP_LIBRARY_SEARCH_MODE_STORAGE_KEY,
+		type DeepLibrarySearchMode,
+		type DeepLibrarySearchResult,
+		type DeepLibrarySearchStatusPhase,
+		type DeepLibrarySearchStatusStep
+	} from '$lib/search/deep-library-search-types';
+	import { consumeDeepSearchSseStream } from '$lib/search/parse-deep-search-sse';
 	import { fastSearchResultKey } from '$lib/search/fast-search-result-key';
 	import {
 		hasActiveFastSearchColorFilter,
@@ -31,6 +41,17 @@
 	} from '$lib/search/fast-search-types';
 	import { resolveFastSearchSubtitle } from '$lib/search/resolve-fast-search-subtitle';
 	import { parseWebsearchQuery } from '$lib/search/websearch-query';
+	import {
+		extractHighlightIdFromHref,
+		resultPathname,
+		shouldHandleFastSearchResultLocally,
+		uniqueFastSearchPrefetchPathnames
+	} from '$lib/search/fast-search-navigation';
+	import {
+		clearFastSearchOptimisticTarget,
+		requestFastSearchLocalJump,
+		setFastSearchOptimisticTarget
+	} from '$lib/search/fast-search-navigation-state.svelte';
 	import { cn } from '$lib/utils.js';
 	import { toast } from 'svelte-sonner';
 
@@ -91,6 +112,9 @@
 	const SEARCH_TEXT_SETTLE_DELAY_MS = 5;
 	const SEARCH_TEXT_REVEAL_DELAY_MS =
 		SEARCH_SIZE_DURATION_MS + SEARCH_TEXT_SETTLE_DELAY_MS - SEARCH_TEXT_ENTER_DURATION_MS;
+	const EXPANDED_SEARCH_MAX_LINES = 8;
+	const EXPANDED_SEARCH_SINGLE_LINE_TOLERANCE_PX = 1;
+	const VISIBLE_RESULT_PREFETCH_LIMIT = 5;
 	const prefetchedPathnames = new Set<string>();
 
 	let {
@@ -104,6 +128,7 @@
 	} = $props();
 
 	let query = $state('');
+	let searchMode = $state<DeepLibrarySearchMode>('fast');
 	let searchFilters = $state<FastSearchFilters>({});
 	let resultScope = $state<FastSearchResultScope>('both');
 	let rawLanes = $state<FastSearchLane[]>([]);
@@ -128,6 +153,12 @@
 	let navigationInFlight = $state(false);
 	let prefersReducedMotion = $state(false);
 	let shellWidthReady = $state(true);
+	let deepResults = $state<DeepLibrarySearchResult[]>([]);
+	let deepStatusSteps = $state<DeepLibrarySearchStatusStep[]>([]);
+	let isDeepSearching = $state(false);
+	let deepError = $state<string | null>(null);
+	let completedDeepPrompt = $state<string | null>(null);
+	let deepAbortController: AbortController | null = null;
 
 	let abortController: AbortController | null = null;
 	let recommendationAbortController: AbortController | null = null;
@@ -135,13 +166,16 @@
 	let overlayCloseTimer: number | null = null;
 	let shellWidthReadyTimer: number | null = null;
 	let shellAnchor: HTMLDivElement | null = $state(null);
-	let searchInput: HTMLInputElement | null = $state(null);
+	let searchInput: HTMLInputElement | HTMLTextAreaElement | null = $state(null);
+	let isSearchFieldMultiline = $state(false);
 	let ignoreShellOpenClick = false;
 	let lastRecommendationSignature: string | null = null;
 
 	const trimmedQuery = $derived(query.trim());
 	const parsedQuery = $derived(parseWebsearchQuery(trimmedQuery));
 	const shouldSearch = $derived(Boolean(trimmedQuery));
+	const isDeepMode = $derived(searchMode === 'deep');
+	const deepSearchUrl = $derived(`${searchBasePath}/deep-search`);
 	const clientFilterSignature = $derived(JSON.stringify({ searchFilters, resultScope }));
 	const currentDocumentId = $derived(resolveCurrentDocumentId());
 	const displayedRawLanes = $derived(shouldSearch ? rawLanes : recommendedLanes);
@@ -151,7 +185,10 @@
 	const visibleLanes = $derived(filteredLanes.filter((lane) => lane.results.length > 0));
 	const filteredResults = $derived(visibleLanes.flatMap((lane) => lane.results));
 	const rawResultCount = $derived(countFastSearchClientResults(rawLanes));
-	const isSearchCycleActive = $derived(isSearching || isEnrichmentSearching || isSemanticSearching);
+	const isSearchCycleActive = $derived(
+		isDeepMode ? isDeepSearching : isSearching || isEnrichmentSearching || isSemanticSearching
+	);
+	const hasDeepDropdown = $derived(isDeepMode && expanded);
 	const hasServerEmptyResults = $derived(
 		shouldSearch &&
 			completedQuery === trimmedQuery &&
@@ -175,20 +212,23 @@
 	);
 	const hasEmptyResults = $derived(hasServerEmptyResults || hasFilterEmptyResults);
 	const hasDropdown = $derived(
-		(!shouldSearch && filteredResults.length > 0) ||
-			(shouldSearch &&
-				(filteredResults.length > 0 ||
-					hasEmptyResults ||
-					(!isSearchCycleActive &&
-						(Boolean(error) || Boolean(enrichmentError) || Boolean(semanticError)))))
+		isDeepMode
+			? hasDeepDropdown
+			: (!shouldSearch && filteredResults.length > 0) ||
+					(shouldSearch &&
+						(filteredResults.length > 0 ||
+							hasEmptyResults ||
+							(!isSearchCycleActive &&
+								(Boolean(error) || Boolean(enrichmentError) || Boolean(semanticError)))))
 	);
+	const deepKeyboardResults = $derived(deepResults);
 	const showClearControl = $derived(
 		Boolean(trimmedQuery) || hasActiveFastSearchColorFilter(searchFilters) || resultScope !== 'both'
 	);
 	const SEARCH_HINT_CLASS =
 		'fast-search-shortcut-hint inline-flex h-5 shrink-0 items-center justify-center gap-0.5 rounded-full border border-border bg-muted px-2 font-sans text-[10px] font-medium not-italic leading-none text-muted-foreground';
-	const SEARCH_STATUS_MESSAGE_CLASS = 'px-3 py-2 text-sm leading-snug text-muted-foreground';
-	const SEARCH_ERROR_MESSAGE_CLASS = 'px-3 py-2 text-sm leading-snug text-destructive';
+	const SEARCH_STATUS_MESSAGE_CLASS = 'py-2 text-sm leading-snug text-muted-foreground';
+	const SEARCH_ERROR_MESSAGE_CLASS = 'py-2 text-sm leading-snug text-destructive';
 	const overlayVisible = $derived(expanded || overlayClosing);
 	const panelMotion = $derived(overlayClosing ? 'exit' : expanded ? 'enter' : 'instant');
 
@@ -200,8 +240,41 @@
 		previewTarget ? { result: previewTarget, resultKey: fastSearchResultKey(previewTarget) } : null
 	);
 	const isKeyboardHighlightVisible = $derived(!isPointerOverListbox);
+	const isAiThinking = $derived(isDeepMode && isDeepSearching);
+	const currentDeepStatusStep = $derived(
+		deepStatusSteps.length > 0 ? deepStatusSteps[deepStatusSteps.length - 1] : null
+	);
+	const searchPlaceholder = $derived(
+		isDeepMode ? 'Search your library in plain language…' : 'Search your library'
+	);
+	function deepStatusLabelBase(label: string): string {
+		return label.replace(/[….]+\s*$/u, '').trimEnd();
+	}
+
+	function deepStatusPhaseIcon(phase: DeepLibrarySearchStatusPhase): Component {
+		if (phase === 'interpreting') {
+			return Sparkles;
+		}
+		if (phase === 'searching') {
+			return Search;
+		}
+		if (phase === 'reading') {
+			return FileText;
+		}
+		if (phase === 'ranking') {
+			return Brain;
+		}
+		return Sparkles;
+	}
 
 	onMount(() => {
+		const storedMode = readStoredDeepLibrarySearchMode(
+			localStorage.getItem(DEEP_LIBRARY_SEARCH_MODE_STORAGE_KEY)
+		);
+		if (storedMode) {
+			searchMode = storedMode;
+		}
+
 		isMacPlatform = /Mac|iPhone|iPad|iPod/.test(navigator.platform);
 		prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -254,11 +327,58 @@
 		if (expanded) {
 			void tick().then(() => {
 				searchInput?.focus();
+				syncExpandedSearchFieldLayout();
 			});
 		}
 	});
 
 	$effect(() => {
+		if (!expanded) {
+			return;
+		}
+
+		void searchMode;
+		void tick().then(() => {
+			requestAnimationFrame(() => {
+				syncExpandedSearchFieldLayout();
+			});
+		});
+	});
+
+	$effect(() => {
+		if (!expanded) {
+			return;
+		}
+
+		void query;
+		void tick().then(() => {
+			syncExpandedSearchFieldHeight();
+		});
+	});
+
+	$effect(() => {
+		if (typeof localStorage === 'undefined') {
+			return;
+		}
+		localStorage.setItem(DEEP_LIBRARY_SEARCH_MODE_STORAGE_KEY, searchMode);
+	});
+
+	$effect(() => {
+		if (searchMode === 'deep') {
+			cancelDebouncedSearch();
+			clearSearchState();
+			return;
+		}
+
+		deepAbortController?.abort();
+		clearDeepState();
+	});
+
+	$effect(() => {
+		if (isDeepMode) {
+			return;
+		}
+
 		const signature = JSON.stringify({ currentDocumentId, recommendedSearchUrl });
 		if (signature === lastRecommendationSignature) {
 			return;
@@ -266,6 +386,17 @@
 
 		lastRecommendationSignature = signature;
 		void fetchRecommendedLanes(currentDocumentId);
+	});
+
+	$effect(() => {
+		const results = filteredResults;
+		if (!expanded || results.length === 0) {
+			return;
+		}
+
+		void tick().then(() => {
+			prefetchVisibleResultRoutes(results);
+		});
 	});
 
 	function resolveCurrentDocumentId(): string | null {
@@ -364,11 +495,6 @@
 		previewHoveringListbox = true;
 	}
 
-	function resultPathname(href: string): string {
-		const hashIndex = href.indexOf('#');
-		return hashIndex >= 0 ? href.slice(0, hashIndex) : href;
-	}
-
 	function prefetchResultRoute(result: FastSearchResult): void {
 		const pathname = resultPathname(result.href);
 		if (prefetchedPathnames.has(pathname)) {
@@ -376,6 +502,21 @@
 		}
 		prefetchedPathnames.add(pathname);
 		void preloadData(pathname);
+	}
+
+	function prefetchVisibleResultRoutes(results: FastSearchResult[]): void {
+		const pathnames = uniqueFastSearchPrefetchPathnames({
+			results,
+			limit: VISIBLE_RESULT_PREFETCH_LIMIT
+		});
+
+		for (const pathname of pathnames) {
+			if (prefetchedPathnames.has(pathname)) {
+				continue;
+			}
+			prefetchedPathnames.add(pathname);
+			void preloadData(pathname);
+		}
 	}
 
 	function handleListboxMouseMove(event: MouseEvent): void {
@@ -409,6 +550,46 @@
 		previewTarget = result;
 	}
 
+	function applyDeepResultPreview(event: MouseEvent, result: DeepLibrarySearchResult): void {
+		const previewResult = deepResultToPreviewTarget(result);
+		if (!previewResult) {
+			return;
+		}
+		const resultKey = fastSearchResultKey(previewResult);
+		const previousKey = previewTarget ? fastSearchResultKey(previewTarget) : null;
+		if (resultKey !== previousKey) {
+			prefetchResultRoute(previewResult);
+		}
+		if (!canHoverPreview) {
+			return;
+		}
+		isPointerOverListbox = true;
+		previewHoveringListbox = true;
+		previewCursorX = event.clientX;
+		previewCursorY = event.clientY;
+		previewTarget = previewResult;
+	}
+
+	function handleDeepListboxMouseMove(event: MouseEvent): void {
+		const eventTarget = event.target;
+		if (!(eventTarget instanceof Element)) {
+			return;
+		}
+		const row = eventTarget.closest('[data-fast-search-result-key]');
+		if (!row) {
+			return;
+		}
+		const key = row.getAttribute('data-fast-search-result-key');
+		if (!key) {
+			return;
+		}
+		const result = deepResults.find((item) => deepSearchResultKey(item) === key);
+		if (!result) {
+			return;
+		}
+		applyDeepResultPreview(event, result);
+	}
+
 	function handleListboxMouseLeave(): void {
 		isPointerOverListbox = false;
 		clearPagePreview();
@@ -432,6 +613,173 @@
 		isSemanticSearching = false;
 		completedQuery = null;
 		completedClientFilterSignature = null;
+	}
+
+	function clearDeepState(): void {
+		deepAbortController?.abort();
+		deepResults = [];
+		deepStatusSteps = [];
+		isDeepSearching = false;
+		deepError = null;
+		completedDeepPrompt = null;
+	}
+
+	function deepSearchResultKey(result: DeepLibrarySearchResult): string {
+		if (result.kind === 'document') {
+			return `deep-document:${result.documentId}`;
+		}
+		return `deep-highlight:${result.highlightId}`;
+	}
+
+	function deepResultToPreviewTarget(result: DeepLibrarySearchResult): FastSearchClientResult | null {
+		if (result.kind === 'document') {
+			return {
+				kind: 'document',
+				documentId: result.documentId,
+				documentTitle: result.documentTitle,
+				text: result.matchedEvidence,
+				tags: [],
+				entities: [],
+				href: result.href
+			};
+		}
+
+		if (!result.highlightId || result.pageNumber === null) {
+			return null;
+		}
+
+		return {
+			kind: 'direct_highlight',
+			highlightId: result.highlightId,
+			documentId: result.documentId,
+			documentTitle: result.documentTitle,
+			pageNumber: result.pageNumber,
+			highlightKind: 'text',
+			text: result.matchedEvidence,
+			comment: null,
+			annotationPreview: null,
+			aiAnnotationPreview: null,
+			color: '#facc15',
+			href: result.href
+		};
+	}
+
+	async function executeDeepSearch(currentPrompt: string): Promise<void> {
+		const prompt = currentPrompt.trim();
+		if (!prompt) {
+			return;
+		}
+
+		deepAbortController?.abort();
+		const controller = new AbortController();
+		deepAbortController = controller;
+
+		isDeepSearching = true;
+		deepError = null;
+		deepResults = [];
+		deepStatusSteps = [];
+		highlightedIndex = 0;
+		clearPagePreview();
+
+		try {
+			const response = await fetch(deepSearchUrl, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({
+					prompt,
+					currentDocumentId
+				}),
+				signal: controller.signal
+			});
+
+			if (!response.ok) {
+				const payload = (await response.json()) as { error?: string };
+				throw new Error(payload.error ?? 'Deep search failed');
+			}
+
+			if (!response.body) {
+				throw new Error('Deep search returned no response body.');
+			}
+
+			await consumeDeepSearchSseStream(response.body, (event) => {
+				if (controller.signal.aborted) {
+					return;
+				}
+
+				if (event.event === 'status') {
+					deepStatusSteps = [...deepStatusSteps, event];
+					return;
+				}
+
+				if (event.event === 'complete') {
+					deepResults = event.results;
+					deepStatusSteps = event.statusSteps;
+					completedDeepPrompt = prompt;
+					return;
+				}
+
+				if (event.event === 'error') {
+					throw new Error(event.message);
+				}
+			});
+		} catch (searchError) {
+			if (controller.signal.aborted) {
+				return;
+			}
+			deepError =
+				searchError instanceof Error ? searchError.message : 'Deep search is unavailable right now.';
+			completedDeepPrompt = prompt;
+		} finally {
+			if (!controller.signal.aborted) {
+				isDeepSearching = false;
+			}
+		}
+	}
+
+	async function openDeepResult(result: DeepLibrarySearchResult): Promise<void> {
+		if (navigationInFlight) {
+			return;
+		}
+
+		navigationInFlight = true;
+		closeExpanded();
+		try {
+			const highlightId =
+				result.highlightId ?? extractHighlightIdFromHref(result.href);
+			const navigationResult = {
+				kind: result.kind,
+				documentId: result.documentId,
+				highlightId: highlightId ?? undefined,
+				href: result.href
+			};
+
+			if (
+				shouldHandleFastSearchResultLocally({
+					result: navigationResult,
+					currentDocumentId
+				}) &&
+				highlightId
+			) {
+				history.pushState(null, '', `#highlight-${encodeURIComponent(highlightId)}`);
+				requestFastSearchLocalJump(result.documentId, highlightId);
+				return;
+			}
+
+			setFastSearchOptimisticTarget({
+				documentId: result.documentId,
+				documentTitle: result.documentTitle,
+				href: result.href,
+				highlightId
+			});
+			// eslint-disable-next-line svelte/no-navigation-without-resolve -- destination path comes from search API at runtime
+			await goto(result.href);
+			clearFastSearchOptimisticTarget();
+		} catch (navError) {
+			clearFastSearchOptimisticTarget();
+			toast.error(navError instanceof Error ? navError.message : 'Could not open that result.');
+		} finally {
+			navigationInFlight = false;
+		}
 	}
 
 	async function fetchRecommendedLanes(documentId: string | null): Promise<void> {
@@ -458,10 +806,12 @@
 
 	function clearSearch(): void {
 		cancelDebouncedSearch();
+		deepAbortController?.abort();
 		query = '';
 		searchFilters = {};
 		resultScope = 'both';
 		clearSearchState();
+		clearDeepState();
 		clearPagePreview();
 		highlightedIndex = 0;
 	}
@@ -486,14 +836,77 @@
 		highlightedIndex = 0;
 	}
 
+	function resetExpandedSearchFieldHeight(): void {
+		const textarea = searchInput;
+		if (!(textarea instanceof HTMLTextAreaElement)) {
+			return;
+		}
+
+		textarea.style.height = '';
+		textarea.style.overflowY = '';
+		isSearchFieldMultiline = false;
+	}
+
+	function readExpandedSearchLineHeightPx(textarea: HTMLTextAreaElement): number {
+		const textareaStyles = getComputedStyle(textarea);
+		let lineHeightPx = Number.parseFloat(textareaStyles.lineHeight);
+		if (!Number.isFinite(lineHeightPx)) {
+			lineHeightPx = Number.parseFloat(textareaStyles.fontSize) * 1.25;
+		}
+		return lineHeightPx;
+	}
+
+	function syncExpandedSearchFieldHeight(): void {
+		const textarea = searchInput;
+		if (!(textarea instanceof HTMLTextAreaElement)) {
+			return;
+		}
+
+		if (textarea.value.trim().length === 0) {
+			resetExpandedSearchFieldHeight();
+			return;
+		}
+
+		const lineHeightPx = readExpandedSearchLineHeightPx(textarea);
+		const maxHeightPx = lineHeightPx * EXPANDED_SEARCH_MAX_LINES;
+
+		textarea.style.height = '0px';
+		const contentHeight = textarea.scrollHeight;
+		const nextHeight = Math.min(Math.max(contentHeight, lineHeightPx), maxHeightPx);
+
+		if (nextHeight <= lineHeightPx + EXPANDED_SEARCH_SINGLE_LINE_TOLERANCE_PX) {
+			resetExpandedSearchFieldHeight();
+			return;
+		}
+
+		textarea.style.height = `${nextHeight}px`;
+		textarea.style.overflowY = contentHeight > maxHeightPx ? 'auto' : 'hidden';
+		isSearchFieldMultiline = true;
+	}
+
+	function syncExpandedSearchFieldLayout(): void {
+		syncExpandedSearchFieldHeight();
+	}
+
 	function handleInput(event: Event): void {
 		const inputEvent = event as InputEvent;
 		if (inputEvent.isComposing) return;
-		const raw = (inputEvent.currentTarget as HTMLInputElement).value;
+		const raw = (inputEvent.currentTarget as HTMLInputElement | HTMLTextAreaElement).value;
+
+		if (expanded) {
+			syncExpandedSearchFieldHeight();
+		}
 
 		if (!raw.trim()) {
 			cancelDebouncedSearch();
 			clearSearchState();
+			if (isDeepMode) {
+				clearDeepState();
+			}
+			return;
+		}
+
+		if (isDeepMode) {
 			return;
 		}
 
@@ -624,6 +1037,43 @@
 			return;
 		}
 
+		if (isDeepMode) {
+			if (event.key === 'ArrowDown') {
+				event.preventDefault();
+				isPointerOverListbox = false;
+				highlightedIndex = Math.min(
+					highlightedIndex + 1,
+					Math.max(deepKeyboardResults.length - 1, 0)
+				);
+				return;
+			}
+
+			if (event.key === 'ArrowUp') {
+				event.preventDefault();
+				isPointerOverListbox = false;
+				highlightedIndex = Math.max(highlightedIndex - 1, 0);
+				return;
+			}
+
+			if (event.key === 'Enter' && !event.shiftKey && trimmedQuery) {
+				if (deepKeyboardResults.length > 0) {
+					const enterTarget = deepKeyboardResults[highlightedIndex];
+					if (enterTarget) {
+						event.preventDefault();
+						void openDeepResult(enterTarget);
+					}
+					return;
+				}
+
+				if (!isDeepSearching) {
+					event.preventDefault();
+					void executeDeepSearch(trimmedQuery);
+				}
+			}
+
+			return;
+		}
+
 		if (event.key === 'ArrowDown') {
 			event.preventDefault();
 			isPointerOverListbox = false;
@@ -636,7 +1086,7 @@
 			highlightedIndex = Math.max(highlightedIndex - 1, 0);
 		}
 
-		if (event.key === 'Enter') {
+		if (event.key === 'Enter' && !event.shiftKey) {
 			const enterTarget =
 				isPointerOverListbox && previewTarget !== null
 					? previewTarget
@@ -655,9 +1105,30 @@
 		navigationInFlight = true;
 		closeExpanded();
 		try {
+			const highlightId = extractHighlightIdFromHref(result.href);
+			if (
+				shouldHandleFastSearchResultLocally({
+					result,
+					currentDocumentId
+				}) &&
+				highlightId
+			) {
+				history.pushState(null, '', `#highlight-${encodeURIComponent(highlightId)}`);
+				requestFastSearchLocalJump(result.documentId, highlightId);
+				return;
+			}
+
+			setFastSearchOptimisticTarget({
+				documentId: result.documentId,
+				documentTitle: result.documentTitle,
+				href: result.href,
+				highlightId
+			});
 			// eslint-disable-next-line svelte/no-navigation-without-resolve -- destination path comes from search API at runtime
 			await goto(result.href);
+			clearFastSearchOptimisticTarget();
 		} catch (navError) {
+			clearFastSearchOptimisticTarget();
 			toast.error(navError instanceof Error ? navError.message : 'Could not open that result.');
 		} finally {
 			navigationInFlight = false;
@@ -722,6 +1193,9 @@
 		data-closing={overlayClosing}
 		data-width-ready={shellWidthReady}
 		data-motion={panelMotion}
+		data-ai-mode={isDeepMode}
+		data-multiline={isSearchFieldMultiline}
+		data-ai-thinking={isAiThinking}
 		ontransitionend={handleShellTransitionEnd}
 		role={expanded ? 'combobox' : 'button'}
 		tabindex={expanded ? undefined : 0}
@@ -746,24 +1220,41 @@
 		}}
 	>
 		<div class="fast-search-input-row">
-			<Search class="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-			<input
-				bind:this={searchInput}
-				bind:value={query}
-				readonly={!expanded}
-				tabindex={expanded ? 0 : -1}
-				oninput={handleInput}
-				onkeydown={handleKeydown}
-				class="fast-search-input min-w-0 flex-1 border-0 bg-transparent text-sm leading-tight outline-none placeholder:text-muted-foreground focus-visible:ring-0"
-				placeholder="Search your library"
-				aria-label="Search your library"
-				aria-autocomplete="list"
-				aria-expanded={hasDropdown}
-				aria-busy={isSearchCycleActive}
-				aria-controls="fast-search-results"
-				autocomplete="off"
-				spellcheck="false"
-			/>
+			<Search class="fast-search-input-icon size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+			{#if expanded}
+				<textarea
+					bind:this={searchInput}
+					bind:value={query}
+					tabindex={0}
+					oninput={handleInput}
+					onkeydown={handleKeydown}
+					class="fast-search-input fast-search-field-input minimal-scrollbar min-w-0 flex-1 resize-none border-0 bg-transparent p-0 text-sm leading-tight outline-none placeholder:text-muted-foreground focus-visible:ring-0"
+					placeholder={searchPlaceholder}
+					aria-label="Search your library"
+					aria-autocomplete="list"
+					aria-busy={isSearchCycleActive}
+					aria-controls="fast-search-results"
+					spellcheck={isDeepMode && trimmedQuery.length > 0}
+				></textarea>
+			{:else}
+				<input
+					bind:this={searchInput}
+					bind:value={query}
+					readonly={true}
+					tabindex={-1}
+					oninput={handleInput}
+					onkeydown={handleKeydown}
+					class="fast-search-input min-w-0 flex-1 border-0 bg-transparent text-sm leading-tight outline-none placeholder:text-muted-foreground focus-visible:ring-0"
+					placeholder={searchPlaceholder}
+					aria-label="Search your library"
+					aria-autocomplete="list"
+					aria-expanded={hasDropdown}
+					aria-busy={isSearchCycleActive}
+					aria-controls="fast-search-results"
+					autocomplete="off"
+					spellcheck={false}
+				/>
+			{/if}
 			<div class="fast-search-trailing">
 				<span class="fast-search-trailing-kbd" data-visible={!expanded} aria-hidden={expanded}>
 					<span
@@ -811,26 +1302,127 @@
 
 		<div class="fast-search-shell-body" aria-hidden={!expanded && !overlayClosing}>
 			<div class="fast-search-shell-body-inner">
-				<div class="fast-search-chips px-4 pb-2" data-expanded={expanded} data-motion={panelMotion}>
+				<div
+					class="fast-search-chips flex items-center justify-between gap-3 px-3.5 pb-2"
+					data-expanded={expanded}
+					data-motion={panelMotion}
+				>
 					<FastLibrarySearchFilterChips
 						bind:resultScope
 						bind:searchFilters
+						disabled={isDeepMode}
 						onClientFilterChange={handleClientFilterChange}
 					/>
+					<FastDeepModeToggle bind:searchMode class="shrink-0" />
 				</div>
 
 				{#if hasDropdown}
 					<div
 						id="fast-search-results"
-						class="fast-search-results minimal-scrollbar max-h-[min(32rem,calc(100svh-18rem-max(env(safe-area-inset-bottom,0px),12px)))] touch-pan-y overflow-x-hidden overflow-y-auto overscroll-y-contain border-t border-border px-2 py-2 [scrollbar-gutter:stable] sm:max-h-[min(36rem,calc(100svh-16rem-max(env(safe-area-inset-bottom,0px),12px)))]"
+						class="fast-search-results minimal-scrollbar max-h-[min(32rem,calc(100svh-18rem-max(env(safe-area-inset-bottom,0px),12px)))] touch-pan-y overflow-x-hidden overflow-y-auto overscroll-y-contain border-t border-border px-3.5 py-3 sm:max-h-[min(36rem,calc(100svh-16rem-max(env(safe-area-inset-bottom,0px),12px)))]"
 						role="listbox"
-						aria-label="Search results"
+						aria-label={isDeepMode ? 'Summarice AI results' : 'Search results'}
 						tabindex="-1"
 						onmouseenter={handleListboxMouseEnter}
-						onmousemove={handleListboxMouseMove}
+						onmousemove={isDeepMode ? handleDeepListboxMouseMove : handleListboxMouseMove}
 						onmouseleave={handleListboxMouseLeave}
 					>
-						{#if error}
+						{#if isDeepMode}
+							{#if deepError}
+								<div class="{SEARCH_ERROR_MESSAGE_CLASS} fast-search-deferred-text" role="alert">
+									{deepError}
+								</div>
+							{:else if isDeepSearching}
+								<div
+									class="fast-search-ai-thinking py-1"
+									role="status"
+									aria-live="polite"
+									aria-busy="true"
+								>
+									{#if currentDeepStatusStep}
+										{@const StatusIcon = deepStatusPhaseIcon(currentDeepStatusStep.phase)}
+										<div
+											class="fast-search-ai-thinking-card fast-search-deferred-text relative overflow-hidden rounded-lg border border-border/60 bg-card px-3 py-3"
+										>
+											<div class="fast-search-ai-thinking-sheen" aria-hidden="true"></div>
+											<div class="relative flex gap-3">
+												<StatusIcon
+													class="mt-0.5 size-4 shrink-0 text-primary"
+													aria-hidden="true"
+												/>
+												<p
+													class="fast-search-ai-thinking-label min-w-0 flex-1 text-sm leading-snug font-medium text-foreground"
+													aria-label={currentDeepStatusStep.label}
+												>
+													<span>{deepStatusLabelBase(currentDeepStatusStep.label)}</span>
+													<span class="fast-search-ai-ellipsis" aria-hidden="true">
+														<span>.</span><span>.</span><span>.</span>
+													</span>
+												</p>
+											</div>
+										</div>
+									{/if}
+								</div>
+							{:else if !shouldSearch}
+								<div class="{SEARCH_STATUS_MESSAGE_CLASS} fast-search-deferred-text">
+									Ask in plain language what you want to find, then press Enter.
+								</div>
+							{:else if deepResults.length === 0 && completedDeepPrompt === trimmedQuery}
+								<div class="{SEARCH_STATUS_MESSAGE_CLASS} fast-search-deferred-text">
+									Nothing in your library matched. Try different words or a shorter question.
+								</div>
+							{:else}
+								{#each deepResults as result, index (deepSearchResultKey(result))}
+									{@const ResultIcon = result.kind === 'document' ? FileText : Highlighter}
+									<button
+										type="button"
+										data-fast-search-result-key={deepSearchResultKey(result)}
+										class="grid w-full grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5 rounded-lg p-3 text-left transition-[background-color,transform] duration-150 ease-out hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none active:scale-[0.99] disabled:pointer-events-none disabled:opacity-60 motion-reduce:transition-none motion-reduce:active:scale-100"
+										class:bg-muted={isKeyboardHighlightVisible && index === highlightedIndex}
+										role="option"
+										aria-selected={isKeyboardHighlightVisible && index === highlightedIndex}
+										aria-busy={navigationInFlight}
+										disabled={navigationInFlight}
+										onmouseenter={(event) => applyDeepResultPreview(event, result)}
+										onclick={() => openDeepResult(result)}
+									>
+										<span
+											class="relative col-start-1 row-start-1 inline-flex size-4 shrink-0 self-start"
+											aria-hidden="true"
+										>
+											<ResultIcon class="size-4 text-muted-foreground" />
+										</span>
+										<span
+											class="col-start-2 row-start-1 flex min-w-0 items-start justify-between gap-2"
+										>
+											<span
+												class="fast-search-deferred-text min-w-0 flex-1 text-sm leading-snug font-semibold text-foreground"
+											>
+												{result.documentTitle}
+											</span>
+											{#if result.pageNumber !== null}
+												<Badge
+													variant="secondary"
+													class="fast-search-deferred-text shrink-0 tabular-nums"
+												>
+													p. {result.pageNumber}
+												</Badge>
+											{/if}
+										</span>
+										<p
+											class="fast-search-deferred-text col-span-2 [display:-webkit-box] min-w-0 overflow-hidden text-sm leading-snug text-muted-foreground [-webkit-box-orient:vertical] [-webkit-line-clamp:2]"
+										>
+											{result.matchedEvidence}
+										</p>
+										<p
+											class="fast-search-deferred-text col-span-2 text-sm leading-snug text-foreground/80"
+										>
+											{result.reason}
+										</p>
+									</button>
+								{/each}
+							{/if}
+						{:else if error}
 							<div class="{SEARCH_ERROR_MESSAGE_CLASS} fast-search-deferred-text" role="alert">
 								{error}
 							</div>
@@ -904,7 +1496,7 @@
 											{#if result.kind === 'document'}
 												{#if subtitle.themesLine || subtitle.entitiesLine || subtitle.primary.length > 0}
 													<span
-														class="col-start-2 flex min-w-0 flex-col gap-1.5"
+														class="col-span-2 flex min-w-0 flex-col gap-1"
 													>
 														{#if subtitle.themesLine}
 															<span
@@ -1118,22 +1710,33 @@
 
 	.fast-search-trailing {
 		position: relative;
-		width: auto;
-		min-width: max-content;
+		display: flex;
 		flex-shrink: 0;
+		align-items: center;
 		align-self: stretch;
 	}
 
-	.fast-search-trailing-kbd {
-		position: absolute;
-		inset: 0;
+	.fast-search-trailing-kbd,
+	.fast-search-trailing-expanded {
 		display: flex;
 		align-items: center;
 		justify-content: flex-end;
-		gap: 0.25rem;
 		opacity: 0;
 		pointer-events: none;
 		transition: opacity 120ms var(--ease-out-strong);
+	}
+
+	.fast-search-trailing-kbd {
+		gap: 0.25rem;
+	}
+
+	.fast-search-trailing-kbd:not([data-visible='true']),
+	.fast-search-trailing-expanded:not([data-visible='true']) {
+		position: absolute;
+		right: 0;
+		top: 50%;
+		visibility: hidden;
+		transform: translateY(-50%);
 	}
 
 	:global(.fast-search-shortcut-hint) {
@@ -1143,15 +1746,7 @@
 	}
 
 	.fast-search-trailing-expanded {
-		position: absolute;
-		inset: 0;
-		display: flex;
-		align-items: center;
-		justify-content: flex-end;
 		gap: 0.5rem;
-		opacity: 0;
-		pointer-events: none;
-		transition: opacity 120ms var(--ease-out-strong);
 	}
 
 	.fast-search-trailing-kbd[data-visible='true'],
@@ -1169,7 +1764,43 @@
 
 	.fast-search-shell[data-expanded='true'] .fast-search-input-row {
 		gap: 0.625rem;
-		padding: 0 0.875rem;
+		padding: 0.875rem;
+	}
+
+	.fast-search-field-input {
+		box-sizing: border-box;
+		display: block;
+		margin: 0;
+		min-height: 1lh;
+		resize: none;
+		white-space: pre-wrap;
+		word-break: break-word;
+		scrollbar-gutter: stable;
+	}
+
+	.fast-search-shell[data-expanded='true']:not([data-multiline='true']) .fast-search-field-input {
+		height: 1lh;
+		max-height: 1lh;
+		overflow: hidden;
+	}
+
+	.fast-search-shell[data-expanded='true'][data-multiline='true'] .fast-search-field-input {
+		height: auto;
+		max-height: calc(1lh * 8);
+		overflow-y: hidden;
+	}
+
+	.fast-search-shell[data-expanded='true'][data-multiline='true'] .fast-search-input-row {
+		align-items: flex-start;
+	}
+
+	.fast-search-shell[data-expanded='true'][data-multiline='true'] .fast-search-input-icon {
+		margin-top: 0.125rem;
+	}
+
+	.fast-search-shell[data-expanded='true'][data-multiline='true'] .fast-search-trailing {
+		align-self: flex-start;
+		padding-top: 0.125rem;
 	}
 
 	.fast-search-input {
@@ -1181,6 +1812,9 @@
 	}
 
 	.fast-search-shell:not([data-expanded='true']):not([data-closing='true']) .fast-search-input {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 		pointer-events: none;
 	}
 
@@ -1288,6 +1922,105 @@
 		}
 	}
 
+	.fast-search-shell[data-ai-thinking='true'] {
+		border-color: transparent;
+	}
+
+	.fast-search-shell[data-ai-thinking='true']::after {
+		content: '';
+		position: absolute;
+		inset: 0;
+		z-index: 0;
+		padding: 1px;
+		border-radius: inherit;
+		background: linear-gradient(
+			135deg,
+			color-mix(in oklch, var(--ai-accent-purple) 45%, transparent),
+			color-mix(in oklch, var(--ai-accent-blue) 45%, transparent),
+			color-mix(in oklch, var(--ai-accent-purple) 45%, transparent)
+		);
+		background-size: 200% 200%;
+		animation: fast-search-ai-sheen 10s linear infinite;
+		-webkit-mask:
+			linear-gradient(#fff 0 0) content-box,
+			linear-gradient(#fff 0 0);
+		-webkit-mask-composite: xor;
+		mask:
+			linear-gradient(#fff 0 0) content-box,
+			linear-gradient(#fff 0 0);
+		mask-composite: exclude;
+		pointer-events: none;
+	}
+
+	.fast-search-shell[data-ai-thinking='true'] > * {
+		position: relative;
+		z-index: 1;
+	}
+
+	.fast-search-ai-thinking-sheen {
+		position: absolute;
+		inset: -20%;
+		background: radial-gradient(
+			ellipse at 30% 20%,
+			color-mix(in oklch, var(--ai-accent-purple) calc(var(--ai-sheen-opacity) * 100%), transparent),
+			transparent 55%
+		),
+		radial-gradient(
+			ellipse at 70% 80%,
+			color-mix(in oklch, var(--ai-accent-blue) calc(var(--ai-sheen-opacity) * 100%), transparent),
+			transparent 55%
+		);
+		background-size: 200% 200%;
+		animation: fast-search-ai-sheen 10s linear infinite;
+		pointer-events: none;
+	}
+
+	.fast-search-ai-thinking-label {
+		transition: opacity 150ms var(--ease-out-strong);
+	}
+
+	.fast-search-ai-ellipsis {
+		display: inline-flex;
+		width: 1.1em;
+		margin-left: 0.05em;
+	}
+
+	.fast-search-ai-ellipsis span {
+		opacity: 0.25;
+		animation: fast-search-ai-dot 1.2s ease-in-out infinite;
+	}
+
+	.fast-search-ai-ellipsis span:nth-child(2) {
+		animation-delay: 0.15s;
+	}
+
+	.fast-search-ai-ellipsis span:nth-child(3) {
+		animation-delay: 0.3s;
+	}
+
+	@keyframes fast-search-ai-sheen {
+		0% {
+			background-position: 0% 50%;
+		}
+		50% {
+			background-position: 100% 50%;
+		}
+		100% {
+			background-position: 0% 50%;
+		}
+	}
+
+	@keyframes fast-search-ai-dot {
+		0%,
+		70%,
+		100% {
+			opacity: 0.2;
+		}
+		35% {
+			opacity: 1;
+		}
+	}
+
 	@media (prefers-reduced-motion: reduce) {
 		.fast-search-shell,
 		.fast-search-shell-body,
@@ -1310,6 +2043,31 @@
 
 		.fast-search-chips[data-motion='exit'] {
 			transition: opacity 40ms ease;
+		}
+
+		.fast-search-shell[data-ai-thinking='true']::after,
+		.fast-search-ai-thinking-sheen {
+			animation: none;
+			background-position: 50% 50%;
+		}
+
+		.fast-search-ai-ellipsis span {
+			animation: none;
+			opacity: 0.55;
+		}
+
+		.fast-search-ai-thinking-label {
+			animation: fast-search-ai-label-pulse 2s ease-in-out infinite;
+		}
+	}
+
+	@keyframes fast-search-ai-label-pulse {
+		0%,
+		100% {
+			opacity: 1;
+		}
+		50% {
+			opacity: 0.65;
 		}
 	}
 </style>
