@@ -61,13 +61,13 @@
 		if (!source) return [];
 
 		const seenOrdinals = new Set<number>();
-		const block_categories: string[] = [];
 
 		return source
 			.split(/\n{2,}/)
 			.map((blockText) => blockText.trim())
 			.filter(Boolean)
 			.map((blockText): Block => {
+				const block_categories: string[] = [];
 				const headingMatch = /^(#{1,6})\s+(.+)$/.exec(blockText);
 				if (headingMatch) {
 					const level = headingMatch[1]?.length ?? 1;
@@ -182,7 +182,7 @@
 			{/if}
 		{:else}
 			<div class="rounded-xl bg-muted p-4">
-				<h3 class="mb-2 text-xl font-bold">{block.categories.length == 2 ? block.categories.join(" & ") : block.categories.length > 2 ? block.categories.join(" , ") : block.categories}</h3>
+				<h3 class="mb-2 text-xl font-bold">{block.categories.length == 2 ? block.categories.join(" & ") : block.categories.length > 2 ? block.categories.join(", ") : block.categories}</h3>
 				<p class="text-[15px] leading-relaxed text-foreground/80 font-normal">
 					{#each block.segments as segment}
 						{#if segment.type === 'citation'}
