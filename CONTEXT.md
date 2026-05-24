@@ -27,10 +27,18 @@ _Avoid_: Using "note" for the highlight-level comment field.
 ### Search
 
 **Fast library search**:
-Cross-document highlight and summary retrieval from the global navbar (compact trigger, expanded panel below the header), distinct from the in-document sidebar highlight filter. The `/chat` route retains the Fast/Deep mode toggle only; it is not the retrieval surface.
+Cross-document highlight and summary retrieval from the global navbar (compact trigger, expanded panel below the header), distinct from the in-document sidebar highlight filter. Fast and Deep library search modes share this panel; the Fast/Deep toggle sits in the filter-chip row.
+
+**Deep library search**:
+LLM-assisted cross-document retrieval for fuzzy, descriptive, or multi-hop prompts. It returns ranked navigable document/highlight results with short relevance reasons, using the highlight-anchored library corpus. Runs on explicit submit (Enter), not while typing.
+
+**Summarice AI**:
+Product label for enabling **Deep library search** in the global search panel toggle.
+
+_Avoid_: Treating Deep library search as chat, multi-turn conversation, or cited answer generation.
 
 **Search filter chip**:
-UI control on fast library search that narrows the results dropdown client-side after a text query returns (not a server retrieval parameter).
+UI control on fast library search that narrows the results dropdown client-side after a text query returns (not a server retrieval parameter). Disabled while Deep mode is active; chip values are preserved when switching back to Fast.
 
 **Result scope**:
 Chip setting on fast library search that controls which result lanes appear: both highlight and document lanes, highlights only, or documents only.
@@ -64,10 +72,10 @@ A current summary entity that names an important person, organization, model, me
 A recent cross-document highlight shown in fast library search before the user enters a query.
 
 **Search result page preview**:
-Pointer-hover preview of a PDF page for a fast library search result on `/chat`; distinct from the in-document thumbnail panel.
+Pointer-hover preview of a PDF page for a fast or deep library search result on `/chat`; distinct from the in-document thumbnail panel.
 
 **Search result selection**:
-Choosing a fast library search result immediately collapses the panel (query and filter chips are preserved) and navigates to the result's viewer destination (`/doc/{id}` or `/doc/{id}#highlight-{id}`).
+Choosing a fast or deep library search result immediately collapses the panel (query and filter chips are preserved) and navigates to the result's viewer destination (`/doc/{id}` or `/doc/{id}#highlight-{id}`).
 
 ### Flagged ambiguities
 
@@ -82,3 +90,7 @@ Some UI strings still say "note" for the highlight comment field (for example Co
 **Dev**: Can I find an area highlight by its AI interpretation?
 
 **Expert**: Yes. Area highlights have no **Highlighted text**, but their **Notes** (including AI) are searchable.
+
+**Dev**: Is Deep search a chat answer?
+
+**Expert**: No — **Deep library search** returns ranked highlights and documents you can open, each with a short reason. It does not generate a cited essay.
