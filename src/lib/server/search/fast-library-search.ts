@@ -7,6 +7,12 @@ import {
 	buildPartialSearchTerms
 } from '$lib/search/partial-search-terms';
 import {
+	DEEP_CANDIDATE_POOL_SIZE,
+	buildDeepSearchFanoutQueries,
+	mergeDeepSearchCandidates,
+	type DeepSearchMergeInput
+} from '$lib/search/deep-library-search-helpers';
+import {
 	type FastSearchClientTelemetry,
 	type FastSearchFilters,
 	type FastSearchResultScope,
@@ -1055,4 +1061,90 @@ function cosineSimilarity(left: number[], right: number[]): number {
 
 	if (leftMagnitude === 0 || rightMagnitude === 0) return 0;
 	return dot / (Math.sqrt(leftMagnitude) * Math.sqrt(rightMagnitude));
+}
+
+export type DeepSearchFanoutCounts = {
+	query: string;
+	resultCount: number;
+	laneCounts: Record<FastSearchLaneId, number>;
+};
+
+export type CollectFastLibraryCandidatesResult = {
+	candidates: DeepSearchMergeInput[];
+	fanoutCounts: DeepSearchFanoutCounts[];
+};
+
+export function fastSearchResultToMergeInput(result: FastSearchResult): DeepSearchMergeInput {
+	if (result.kind === 'document') {
+		return {
+			candidateKey: resultIdentity(result),
+			kind: 'document',
+			highlightId: null,
+			documentId: result.documentId,
+			documentTitle: result.documentTitle,
+			pageNumber: null,
+			highlightKind: null,
+			retrievalScore: result.score,
+			href: result.href,
+			previewText: result.text,
+			updatedAtMs: null
+		};
+	}
+
+	const previewText =
+		result.text ??
+		result.comment ??
+		result.annotationPreview ??
+		result.aiAnnotationPreview ??
+		null;
+
+	return {
+		candidateKey: resultIdentity(result),
+		kind: 'highlight',
+		highlightId: result.highlightId,
+		documentId: result.documentId,
+		documentTitle: result.documentTitle,
+		pageNumber: result.pageNumber,
+		highlightKind: result.highlightKind,
+		retrievalScore: result.score,
+		href: result.href,
+		previewText,
+		updatedAtMs: null
+	};
+}
+
+export async function collectFastLibraryCandidatesForQueries(
+	opts: FastSearchOptions,
+	rewrittenQueries: string[]
+): Promise<CollectFastLibraryCandidatesResult> {
+	const queries = buildDeepSearchFanoutQueries(rewrittenQueries, opts.rawQuery);
+	const fanoutCounts: DeepSearchFanoutCounts[] = [];
+	const mergeInputs: DeepSearchMergeInput[] = [];
+
+	for (const query of queries) {
+		const response = await searchFastLibrary({
+			...opts,
+			rawQuery: query,
+			clientFilters: {},
+			resultScope: 'both'
+		});
+		const laneCounts = Object.fromEntries(
+			response.lanes.map((lane) => [lane.id, lane.results.length])
+		) as Record<FastSearchLaneId, number>;
+
+		fanoutCounts.push({
+			query,
+			resultCount: response.results.length,
+			laneCounts
+		});
+
+		for (const result of response.results) {
+			mergeInputs.push(fastSearchResultToMergeInput(result));
+		}
+	}
+
+	return {
+		candidates: mergeDeepSearchCandidates(mergeInputs, DEEP_CANDIDATE_POOL_SIZE),
+		fanoutCounts
+	};
 }
