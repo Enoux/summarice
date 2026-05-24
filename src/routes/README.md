@@ -33,7 +33,7 @@ documents/               Document management
 - **Auth guard** lives in `(app)/+layout.server.ts`. It handles session verification and profile loading.
 - **Document URLs** use `/doc/[id]` — shareable, deep-linkable.
 - **Feature components** for a route live in `src/lib/components/<feature>/`, not co-located with the route.
-- **Highlight categories** in `/doc/[id]` use fixed semantic slots (`1..5`) with keyboard assignment.
+- **Highlight categories** in `/doc/[id]` use fixed semantic slots (`1..5`) selected via UI.
 
 ## See also
 
