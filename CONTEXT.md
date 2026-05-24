@@ -54,8 +54,20 @@ A highlight surfaced by semantic similarity in fast library search, not by a dir
 **Document match**:
 A document-level hit when a summary passage matched but had no local citations to map to highlights.
 
+**Theme**:
+A current summary tag that names a recurring idea in a document; surfaced as document-level search metadata.
+
+**Key Entity**:
+A current summary entity that names an important person, organization, model, method, or object in a document; surfaced as document-level search metadata.
+
+**Recommended highlight**:
+A recent cross-document highlight shown in fast library search before the user enters a query.
+
 **Search result page preview**:
 Pointer-hover preview of a PDF page for a fast library search result on `/chat`; distinct from the in-document thumbnail panel.
+
+**Search result selection**:
+Choosing a fast library search result immediately collapses the panel (query and filter chips are preserved) and navigates to the result's viewer destination (`/doc/{id}` or `/doc/{id}#highlight-{id}`).
 
 ### Flagged ambiguities
 
