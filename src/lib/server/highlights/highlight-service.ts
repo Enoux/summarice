@@ -73,6 +73,7 @@ export type HighlightRow = {
 	category: number | null;
 	color: string;
 	created_at: string;
+	updated_at: string;
 	annotations?: Annotation[];
 };
 
