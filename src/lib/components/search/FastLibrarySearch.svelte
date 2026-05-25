@@ -268,8 +268,12 @@
 	}
 
 	onMount(() => {
+		if (typeof localStorage !== 'undefined') {
+			localStorage.removeItem(DEEP_LIBRARY_SEARCH_MODE_STORAGE_KEY);
+		}
+
 		const storedMode = readStoredDeepLibrarySearchMode(
-			localStorage.getItem(DEEP_LIBRARY_SEARCH_MODE_STORAGE_KEY)
+			sessionStorage.getItem(DEEP_LIBRARY_SEARCH_MODE_STORAGE_KEY)
 		);
 		if (storedMode) {
 			searchMode = storedMode;
@@ -357,10 +361,10 @@
 	});
 
 	$effect(() => {
-		if (typeof localStorage === 'undefined') {
+		if (typeof sessionStorage === 'undefined') {
 			return;
 		}
-		localStorage.setItem(DEEP_LIBRARY_SEARCH_MODE_STORAGE_KEY, searchMode);
+		sessionStorage.setItem(DEEP_LIBRARY_SEARCH_MODE_STORAGE_KEY, searchMode);
 	});
 
 	$effect(() => {
