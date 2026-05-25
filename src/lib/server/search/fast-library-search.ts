@@ -315,7 +315,9 @@ export async function searchFastLibraryLexical(
 	return searchFastLibraryEnrichment(opts, await searchFastLibraryDirect(opts));
 }
 
-export async function searchFastLibraryDirect(opts: FastSearchOptions): Promise<FastSearchResponse> {
+export async function searchFastLibraryDirect(
+	opts: FastSearchOptions
+): Promise<FastSearchResponse> {
 	const startedAt = performance.now();
 	const parsed = getParsedFastSearchQuery(opts);
 	if (!parsed.textQuery) {
@@ -502,7 +504,13 @@ export async function searchFastLibrarySemantic(
 			results
 		);
 
-		await logSearch(opts.supabase, opts.ownerId, opts.rawQuery, telemetry, getClientTelemetry(opts));
+		await logSearch(
+			opts.supabase,
+			opts.ownerId,
+			opts.rawQuery,
+			telemetry,
+			getClientTelemetry(opts)
+		);
 
 		return { results, lanes, telemetry };
 	} catch (error) {
@@ -1087,16 +1095,14 @@ export function fastSearchResultToMergeInput(result: FastSearchResult): DeepSear
 			retrievalScore: result.score,
 			href: result.href,
 			previewText: result.text,
-			updatedAtMs: null
+			updatedAtMs: null,
+			hasComment: false,
+			hasNote: false
 		};
 	}
 
 	const previewText =
-		result.text ??
-		result.comment ??
-		result.annotationPreview ??
-		result.aiAnnotationPreview ??
-		null;
+		result.text ?? result.comment ?? result.annotationPreview ?? result.aiAnnotationPreview ?? null;
 
 	return {
 		candidateKey: resultIdentity(result),
@@ -1109,7 +1115,10 @@ export function fastSearchResultToMergeInput(result: FastSearchResult): DeepSear
 		retrievalScore: result.score,
 		href: result.href,
 		previewText,
-		updatedAtMs: null
+		updatedAtMs: null,
+		hasComment: Boolean(result.comment?.trim()),
+		hasNote:
+			Boolean(result.annotationPreview?.trim()) || Boolean(result.aiAnnotationPreview?.trim())
 	};
 }
 

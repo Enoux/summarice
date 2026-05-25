@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { generate, collectFastLibraryCandidatesForQueries } = vi.hoisted(() => ({
 	generate: vi.fn(),
@@ -12,7 +12,8 @@ vi.mock('$lib/server/ai', () => ({
 }));
 
 vi.mock('./fast-library-search', async () => {
-	const actual = await vi.importActual<typeof import('./fast-library-search')>('./fast-library-search');
+	const actual =
+		await vi.importActual<typeof import('./fast-library-search')>('./fast-library-search');
 	return {
 		...actual,
 		collectFastLibraryCandidatesForQueries
@@ -20,6 +21,12 @@ vi.mock('./fast-library-search', async () => {
 });
 
 import { searchDeepLibrary } from './deep-library-search';
+import {
+	applyDeepSearchPreRankScores,
+	buildDeepSearchFanoutQueries,
+	capRewrittenQueries,
+	extractSalientDeepSearchTerms
+} from '$lib/search/deep-library-search-helpers';
 
 function createSupabaseStub(rows: {
 	highlights?: Record<string, unknown>[];
@@ -149,7 +156,7 @@ describe('searchDeepLibrary', () => {
 		expect(response.results[0]?.reason).toContain('recent note');
 	});
 
-	it('passes verbose planner expansions to candidate collection for fanout', async () => {
+	it('sanitizes verbose planner expansions before candidate collection', async () => {
 		generate.mockResolvedValueOnce({
 			object: {
 				rewrittenQueries: [
@@ -180,11 +187,202 @@ describe('searchDeepLibrary', () => {
 			expect.objectContaining({
 				rawQuery: 'Where can I see hotpotQA'
 			}),
+			['HotpotQA']
+		);
+	});
+});
+
+beforeEach(() => {
+	generate.mockReset();
+	collectFastLibraryCandidatesForQueries.mockReset();
+});
+
+describe('deep search fanout helpers', () => {
+	it('builds intent-first fanout queries without raw navigation prompts', () => {
+		const queries = buildDeepSearchFanoutQueries(
+			['recent comment', 'highlight comment'],
+			'Point me to a recent comment I made on a highlight that I need to research'
+		);
+
+		expect(queries).toEqual(['recent comment', 'highlight comment']);
+		expect(queries).not.toContain(
+			'Point me to a recent comment I made on a highlight that I need to research'
+		);
+		expect(queries).not.toContain('Point');
+	});
+
+	it('preserves exact entities while removing invented planner terms', () => {
+		const queries = capRewrittenQueries(
 			[
 				'HotpotQA dataset documentation',
 				'HotpotQA examples and benchmark results',
 				'HotpotQA full dataset download'
-			]
+			],
+			'Where can I see HotpotQA'
 		);
+
+		expect(queries).toEqual(['HotpotQA']);
+	});
+
+	it('preserves quoted phrases exactly in salient terms', () => {
+		const terms = extractSalientDeepSearchTerms('Find notes about "chain of thought" safety');
+
+		expect(terms).toContain('chain of thought');
+	});
+
+	it('falls back to deterministic salient phrases when planner rewrites are unusable', () => {
+		const queries = buildDeepSearchFanoutQueries([], 'Show me transformer attention');
+
+		expect(queries).toEqual(['transformer attention']);
+	});
+
+	it('normalizes unusable planner output to facet fallback queries', () => {
+		const queries = capRewrittenQueries(['show me'], 'Show me transformer attention');
+
+		expect(queries).toEqual(['transformer attention']);
+	});
+
+	it('does not break clear comment intent into standalone evidence words', () => {
+		const queries = buildDeepSearchFanoutQueries(
+			[],
+			'Point me to a recent comment I made on a highlight that I need to research'
+		);
+
+		expect(queries).toEqual(['highlight comment']);
+		expect(queries).not.toContain('recent');
+		expect(queries).not.toContain('comment');
+		expect(queries).not.toContain('highlight');
+		expect(queries).not.toContain('research');
+	});
+
+	it('preserves planner recency phrases instead of deduping them to content-only terms', () => {
+		const queries = buildDeepSearchFanoutQueries(['recent comment'], 'recent comment');
+
+		expect(queries).toEqual(['recent comment']);
+	});
+
+	it('boosts comment candidates above note candidates for comment intent', () => {
+		const scored = applyDeepSearchPreRankScores(
+			[
+				{
+					candidateKey: 'highlight:note',
+					kind: 'highlight',
+					highlightId: 'note',
+					documentId: 'doc',
+					documentTitle: 'Doc',
+					pageNumber: 1,
+					highlightKind: 'text',
+					retrievalScore: 0.8,
+					href: '/doc/doc#highlight-note',
+					previewText: 'note highlight',
+					updatedAtMs: null,
+					hasComment: false,
+					hasNote: true
+				},
+				{
+					candidateKey: 'highlight:comment',
+					kind: 'highlight',
+					highlightId: 'comment',
+					documentId: 'doc',
+					documentTitle: 'Doc',
+					pageNumber: 1,
+					highlightKind: 'text',
+					retrievalScore: 0.8,
+					href: '/doc/doc#highlight-comment',
+					previewText: 'comment highlight',
+					updatedAtMs: null,
+					hasComment: true,
+					hasNote: false
+				}
+			],
+			{ rewrittenQueries: ['comment'], targetKinds: ['note'], wantsRecent: false },
+			Date.UTC(2026, 4, 25)
+		);
+
+		expect(scored[1]?.preRankScore).toBeGreaterThan(scored[0]?.preRankScore ?? 0);
+	});
+
+	it('boosts note candidates above comment candidates for note intent', () => {
+		const scored = applyDeepSearchPreRankScores(
+			[
+				{
+					candidateKey: 'highlight:comment',
+					kind: 'highlight',
+					highlightId: 'comment',
+					documentId: 'doc',
+					documentTitle: 'Doc',
+					pageNumber: 1,
+					highlightKind: 'text',
+					retrievalScore: 0.8,
+					href: '/doc/doc#highlight-comment',
+					previewText: 'comment highlight',
+					updatedAtMs: null,
+					hasComment: true,
+					hasNote: false
+				},
+				{
+					candidateKey: 'highlight:note',
+					kind: 'highlight',
+					highlightId: 'note',
+					documentId: 'doc',
+					documentTitle: 'Doc',
+					pageNumber: 1,
+					highlightKind: 'text',
+					retrievalScore: 0.8,
+					href: '/doc/doc#highlight-note',
+					previewText: 'note highlight',
+					updatedAtMs: null,
+					hasComment: false,
+					hasNote: true
+				}
+			],
+			{ rewrittenQueries: ['note'], targetKinds: ['note'], wantsRecent: false },
+			Date.UTC(2026, 4, 25)
+		);
+
+		expect(scored[1]?.preRankScore).toBeGreaterThan(scored[0]?.preRankScore ?? 0);
+	});
+
+	it('applies recency boost without requiring recent as a fanout query', () => {
+		const queries = buildDeepSearchFanoutQueries(['comment'], 'recent comment');
+		const scored = applyDeepSearchPreRankScores(
+			[
+				{
+					candidateKey: 'highlight:old',
+					kind: 'highlight',
+					highlightId: 'old',
+					documentId: 'doc',
+					documentTitle: 'Doc',
+					pageNumber: 1,
+					highlightKind: 'text',
+					retrievalScore: 0.8,
+					href: '/doc/doc#highlight-old',
+					previewText: 'old comment',
+					updatedAtMs: Date.UTC(2026, 3, 20),
+					hasComment: true,
+					hasNote: true
+				},
+				{
+					candidateKey: 'highlight:new',
+					kind: 'highlight',
+					highlightId: 'new',
+					documentId: 'doc',
+					documentTitle: 'Doc',
+					pageNumber: 1,
+					highlightKind: 'text',
+					retrievalScore: 0.8,
+					href: '/doc/doc#highlight-new',
+					previewText: 'new comment',
+					updatedAtMs: Date.UTC(2026, 4, 24),
+					hasComment: true,
+					hasNote: true
+				}
+			],
+			{ rewrittenQueries: ['comment'], targetKinds: ['note'], wantsRecent: true },
+			Date.UTC(2026, 4, 25)
+		);
+
+		expect(queries).toEqual(['comment']);
+		expect(scored[1]?.preRankScore).toBeGreaterThan(scored[0]?.preRankScore ?? 0);
 	});
 });

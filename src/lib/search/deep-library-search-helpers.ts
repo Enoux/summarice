@@ -53,6 +53,20 @@ const DEEP_SEARCH_STOPWORDS = new Set([
 	'your'
 ]);
 
+const DEEP_SEARCH_NAVIGATION_WORDS = new Set([
+	'find',
+	'made',
+	'need',
+	'needs',
+	'point',
+	'research',
+	'search',
+	'show',
+	'tell'
+]);
+
+const DEEP_SEARCH_RECENCY_WORDS = new Set(['latest', 'new', 'newly', 'recent', 'recently']);
+
 const QUOTED_PHRASE_PATTERN = /"([^"]+)"/g;
 const SALIENT_TOKEN_PATTERN = /[A-Za-z0-9][A-Za-z0-9_-]*/g;
 
@@ -75,6 +89,8 @@ export type DeepSearchMergeInput = {
 	href: string;
 	previewText: string | null;
 	updatedAtMs: number | null;
+	hasComment?: boolean;
+	hasNote?: boolean;
 };
 
 export type DeepSearchScoredCandidate = DeepSearchMergeInput & {
@@ -88,11 +104,12 @@ export function normalizeDeepLibrarySearchIntent(
 	fallbackPrompt: string
 ): DeepLibrarySearchIntent {
 	const record = readRecord(raw);
+	const targetKinds = normalizeTargetKinds(record.targetKinds);
 	const rewrittenQueries = capRewrittenQueries(
 		readStringArray(record.rewrittenQueries),
-		fallbackPrompt
+		fallbackPrompt,
+		targetKinds
 	);
-	const targetKinds = normalizeTargetKinds(record.targetKinds);
 	const wantsRecent = record.wantsRecent === true;
 
 	return {
@@ -102,16 +119,24 @@ export function normalizeDeepLibrarySearchIntent(
 	};
 }
 
-export function capRewrittenQueries(queries: string[], fallbackPrompt: string): string[] {
+export function capRewrittenQueries(
+	queries: string[],
+	fallbackPrompt: string,
+	targetKinds?: DeepLibrarySearchTargetKind[]
+): string[] {
+	const fallbackQueries = buildDeterministicFanoutQueries(fallbackPrompt);
+	const fallbackTokens = new Set(
+		tokenizeDeepSearchText(fallbackPrompt).map((token) => token.toLowerCase())
+	);
+	const structuralTokens = structuralTokensForTargetKinds(targetKinds);
 	const normalized = queries
-		.map((query) => query.trim().replace(/\s+/g, ' '))
+		.map((query) => sanitizePlannerQuery(query, fallbackTokens, structuralTokens))
 		.filter((query) => query.length > 0);
-	const fallback = fallbackPrompt.trim().replace(/\s+/g, ' ');
-	const source = normalized.length > 0 ? normalized : fallback.length > 0 ? [fallback] : [];
+	const source = normalized.length > 0 ? normalized : fallbackQueries;
 	const unique: string[] = [];
 
 	for (const query of source) {
-		appendUniqueQuery(unique, query, MAX_DEEP_REWRITTEN_QUERIES);
+		appendStrictUniqueQuery(unique, query, MAX_DEEP_REWRITTEN_QUERIES);
 	}
 
 	if (unique.length === 0) {
@@ -150,10 +175,21 @@ export function extractSalientDeepSearchTerms(rawPrompt: string): string[] {
 		addTerm(quotedMatch[1]);
 	}
 
-	let tokenMatch: RegExpExecArray | null;
-	while ((tokenMatch = SALIENT_TOKEN_PATTERN.exec(trimmed)) !== null) {
-		const token = tokenMatch[0];
-		if (!isSalientDeepSearchToken(token)) {
+	const tokens = tokenizeDeepSearchText(trimmed).filter(isSalientDeepSearchToken);
+	const contentTokens = tokens.filter(
+		(token) => !DEEP_SEARCH_RECENCY_WORDS.has(token.toLowerCase())
+	);
+
+	for (const phrase of buildAdjacentPhrases(tokens, 2)) {
+		addTerm(phrase);
+	}
+
+	for (const phrase of buildAdjacentPhrases(contentTokens, 2)) {
+		addTerm(phrase);
+	}
+
+	for (const token of tokens) {
+		if (DEEP_SEARCH_RECENCY_WORDS.has(token.toLowerCase())) {
 			continue;
 		}
 		addTerm(token);
@@ -170,20 +206,20 @@ export function buildDeepSearchFanoutQueries(
 	const plannerQueries = rewrittenQueries
 		.map((query) => query.trim().replace(/\s+/g, ' '))
 		.filter((query) => query.length > 0);
-	const salientTerms = extractSalientDeepSearchTerms(rawPrompt);
 	const unique: string[] = [];
 
-	appendUniqueQuery(unique, fallback, MAX_DEEP_FANOUT_QUERIES);
-
-	for (const term of salientTerms) {
-		appendUniqueQuery(unique, term, MAX_DEEP_FANOUT_QUERIES);
+	for (const query of plannerQueries) {
+		appendStrictUniqueQuery(unique, query, MAX_DEEP_FANOUT_QUERIES);
 	}
 
-	const plannerSource =
-		plannerQueries.length > 0 ? plannerQueries : fallback.length > 0 ? [fallback] : [];
+	if (unique.length === 0) {
+		for (const query of buildDeterministicFanoutQueries(rawPrompt)) {
+			appendStrictUniqueQuery(unique, query, MAX_DEEP_FANOUT_QUERIES);
+		}
+	}
 
-	for (const query of plannerSource) {
-		appendUniqueQuery(unique, query, MAX_DEEP_FANOUT_QUERIES);
+	if (unique.length === 0 && shouldUseRawPromptForDeepFanout(fallback)) {
+		appendStrictUniqueQuery(unique, fallback, MAX_DEEP_FANOUT_QUERIES);
 	}
 
 	if (unique.length === 0) {
@@ -203,6 +239,10 @@ function isSalientDeepSearchToken(token: string): boolean {
 		return false;
 	}
 
+	if (DEEP_SEARCH_NAVIGATION_WORDS.has(normalized)) {
+		return false;
+	}
+
 	if (token.length >= 4) {
 		return true;
 	}
@@ -218,7 +258,151 @@ function isSalientDeepSearchToken(token: string): boolean {
 	return false;
 }
 
-function appendUniqueQuery(unique: string[], query: string, maxQueries: number): void {
+function buildDeterministicFanoutQueries(rawPrompt: string): string[] {
+	const quotedPhrases = extractQuotedDeepSearchPhrases(rawPrompt);
+	if (quotedPhrases.length > 0) {
+		return quotedPhrases;
+	}
+
+	const tokens = tokenizeDeepSearchText(rawPrompt).filter(isSalientDeepSearchToken);
+	const normalizedTokens = new Set(tokens.map((token) => token.toLowerCase()));
+	const contentTokens = tokens.filter(
+		(token) => !DEEP_SEARCH_RECENCY_WORDS.has(token.toLowerCase())
+	);
+
+	if (normalizedTokens.has('highlight') && normalizedTokens.has('comment')) {
+		return ['highlight comment'];
+	}
+
+	if (normalizedTokens.has('highlight') && normalizedTokens.has('note')) {
+		return ['highlight note'];
+	}
+
+	if (normalizedTokens.has('figure')) {
+		const topicTokens = contentTokens.filter((token) => token.toLowerCase() !== 'figure');
+		const topicPhrase = firstAdjacentPhrase(topicTokens);
+		return topicPhrase ? [`${topicPhrase} figure`] : ['figure'];
+	}
+
+	const topicPhrase = firstAdjacentPhrase(contentTokens);
+	if (topicPhrase) {
+		return [topicPhrase];
+	}
+
+	const entityToken = contentTokens.find(isStandaloneDeepSearchEntity);
+	return entityToken ? [entityToken] : [];
+}
+
+function extractQuotedDeepSearchPhrases(rawPrompt: string): string[] {
+	const phrases: string[] = [];
+	let quotedMatch: RegExpExecArray | null;
+	QUOTED_PHRASE_PATTERN.lastIndex = 0;
+	while ((quotedMatch = QUOTED_PHRASE_PATTERN.exec(rawPrompt)) !== null) {
+		const phrase = quotedMatch[1]?.trim().replace(/\s+/g, ' ');
+		if (phrase) {
+			phrases.push(phrase);
+		}
+	}
+	QUOTED_PHRASE_PATTERN.lastIndex = 0;
+	return phrases;
+}
+
+function firstAdjacentPhrase(tokens: string[]): string | null {
+	const phrases = buildAdjacentPhrases(tokens, 2);
+	return phrases[0] ?? null;
+}
+
+function isStandaloneDeepSearchEntity(token: string): boolean {
+	if (/[A-Z]/.test(token) && /[a-z]/.test(token)) {
+		return true;
+	}
+
+	if (token.toUpperCase() === token && /[A-Z]/.test(token)) {
+		return true;
+	}
+
+	if (/\d/.test(token)) {
+		return true;
+	}
+
+	return false;
+}
+
+function sanitizePlannerQuery(
+	query: string,
+	fallbackTokens: Set<string>,
+	structuralTokens: Set<string>
+): string {
+	const tokens = tokenizeDeepSearchText(query).filter((token) => {
+		const normalized = token.toLowerCase();
+		if (!isSalientDeepSearchToken(token)) {
+			return false;
+		}
+		return fallbackTokens.has(normalized) || structuralTokens.has(normalized);
+	});
+
+	return tokens.slice(0, 3).join(' ');
+}
+
+function structuralTokensForTargetKinds(
+	targetKinds: DeepLibrarySearchTargetKind[] | undefined
+): Set<string> {
+	const tokens = new Set<string>();
+	for (const kind of targetKinds ?? []) {
+		if (kind === 'note') {
+			tokens.add('comment');
+			tokens.add('note');
+		}
+		if (kind === 'highlight') {
+			tokens.add('highlight');
+		}
+		if (kind === 'area_highlight') {
+			tokens.add('figure');
+			tokens.add('highlight');
+		}
+		if (kind === 'document') {
+			tokens.add('document');
+		}
+	}
+	return tokens;
+}
+
+function tokenizeDeepSearchText(text: string): string[] {
+	return [...text.matchAll(SALIENT_TOKEN_PATTERN)].map((match) => match[0]);
+}
+
+function buildAdjacentPhrases(tokens: string[], size: number): string[] {
+	if (tokens.length < size) {
+		return [];
+	}
+
+	const phrases: string[] = [];
+	for (let index = 0; index <= tokens.length - size; index += 1) {
+		phrases.push(tokens.slice(index, index + size).join(' '));
+	}
+	return phrases;
+}
+
+function shouldUseRawPromptForDeepFanout(prompt: string): boolean {
+	if (prompt.length === 0) {
+		return false;
+	}
+
+	if (QUOTED_PHRASE_PATTERN.test(prompt)) {
+		QUOTED_PHRASE_PATTERN.lastIndex = 0;
+		return true;
+	}
+	QUOTED_PHRASE_PATTERN.lastIndex = 0;
+
+	const tokens = tokenizeDeepSearchText(prompt);
+	if (tokens.length > 3) {
+		return false;
+	}
+
+	return tokens.every(isSalientDeepSearchToken);
+}
+
+function appendStrictUniqueQuery(unique: string[], query: string, maxQueries: number): void {
 	const normalized = query.trim().replace(/\s+/g, ' ');
 	if (normalized.length === 0) {
 		return;
@@ -260,10 +444,8 @@ export function applyDeepSearchPreRankScores(
 	nowMs: number
 ): DeepSearchScoredCandidate[] {
 	return candidates.map((candidate) => {
-		const recencyBoost = intent.wantsRecent
-			? computeRecencyBoost(candidate.updatedAtMs, nowMs)
-			: 0;
-		const kindBoost = computeTargetKindBoost(candidate, intent.targetKinds);
+		const recencyBoost = intent.wantsRecent ? computeRecencyBoost(candidate.updatedAtMs, nowMs) : 0;
+		const kindBoost = computeTargetKindBoost(candidate, intent);
 		const preRankScore = candidate.retrievalScore + recencyBoost + kindBoost;
 
 		return {
@@ -322,14 +504,20 @@ function computeRecencyBoost(updatedAtMs: number | null, nowMs: number): number 
 
 function computeTargetKindBoost(
 	candidate: DeepSearchMergeInput,
-	targetKinds: DeepLibrarySearchTargetKind[]
+	intent: DeepLibrarySearchIntent
 ): number {
+	const targetKinds = intent.targetKinds;
 	if (targetKinds.includes('document') && candidate.kind === 'document') {
 		return 0.05;
 	}
 
 	if (candidate.kind !== 'highlight') {
 		return 0;
+	}
+
+	const evidenceBoost = computeEvidenceKindBoost(candidate, intent);
+	if (evidenceBoost > 0) {
+		return evidenceBoost;
 	}
 
 	if (targetKinds.includes('area_highlight') && candidate.highlightKind === 'area') {
@@ -340,11 +528,36 @@ function computeTargetKindBoost(
 		return 0.04;
 	}
 
-	if (targetKinds.includes('note')) {
-		return 0.03;
+	return 0;
+}
+
+function computeEvidenceKindBoost(
+	candidate: DeepSearchMergeInput,
+	intent: DeepLibrarySearchIntent
+): number {
+	if (!intent.targetKinds.includes('note')) {
+		return 0;
 	}
 
-	return 0;
+	const queryText = intent.rewrittenQueries.join(' ').toLowerCase();
+	const wantsComment = /\bcomments?\b/.test(queryText);
+	const wantsNote = /\bnotes?\b/.test(queryText) && !wantsComment;
+
+	if (wantsComment) {
+		if (candidate.hasComment === true) {
+			return 0.12;
+		}
+		return candidate.hasNote === true ? 0.03 : 0;
+	}
+
+	if (wantsNote) {
+		if (candidate.hasNote === true) {
+			return 0.12;
+		}
+		return candidate.hasComment === true ? 0.03 : 0;
+	}
+
+	return candidate.hasComment === true || candidate.hasNote === true ? 0.08 : 0;
 }
 
 function normalizeTargetKinds(raw: unknown): DeepLibrarySearchTargetKind[] {

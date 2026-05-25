@@ -1,5 +1,6 @@
 export type DeepLibrarySearchMode = 'fast' | 'deep';
 
+/** Tab-scoped via sessionStorage — cleared when the browser tab closes. */
 export const DEEP_LIBRARY_SEARCH_MODE_STORAGE_KEY = 'summarice.search.mode';
 
 export type DeepLibrarySearchTargetKind =

@@ -26,11 +26,15 @@ import { deepSearchIntentSchema, deepSearchRerankSchema } from './deep-library-s
 
 const DEEP_PLANNER_SYSTEM = [
 	'You interpret library search prompts for an academic PDF reading workspace.',
-	'Return JSON with rewrittenQueries (1-3 short keyword-style search strings), targetKinds, and wantsRecent.',
-	'Each rewrittenQuery should be 1-3 tokens, not a full sentence.',
+	'Return JSON with rewrittenQueries (1-3 retrieval phrases), targetKinds, and wantsRecent.',
+	'Each rewrittenQuery should be 1-3 meaningful searchable tokens, not a full sentence.',
 	'Preserve exact entities, names, and technical terms from the user prompt (for example HotpotQA).',
 	'Do not add words the user did not mention (avoid invented terms like dataset, documentation, or download).',
+	'Treat commands like point me to, show me, find, see, and need to as navigation intent, not searchable content.',
 	'Use targetKinds to reflect whether the user wants text highlights, area highlights or figures, notes, or whole documents.',
+	'For comments or notes, include note in targetKinds and use content phrases like "recent comment" or the topic words.',
+	'For figures or screenshots, include area_highlight in targetKinds and preserve the visible topic words.',
+	'For document-level requests, include document in targetKinds and use the document/topic words.',
 	'Set wantsRecent true only when the prompt implies recency such as recent, latest, or newly written.',
 	'Do not answer the user; only structure retrieval intent.'
 ].join(' ');
@@ -330,9 +334,7 @@ async function hydrateDeepSearchCandidates(
 	const highlightIds = candidates
 		.map((candidate) => candidate.highlightId)
 		.filter((highlightId): highlightId is string => highlightId !== null);
-	const documentIds = [
-		...new Set(candidates.map((candidate) => candidate.documentId))
-	];
+	const documentIds = [...new Set(candidates.map((candidate) => candidate.documentId))];
 
 	const highlightsById = await fetchHighlightsByIds(supabase, ownerId, highlightIds);
 	const documentsById = await fetchDocumentsByIds(supabase, ownerId, documentIds);
@@ -364,15 +366,15 @@ async function hydrateDeepSearchCandidates(
 			};
 		}
 
-		const highlight = candidate.highlightId
-			? highlightsById.get(candidate.highlightId)
-			: undefined;
+		const highlight = candidate.highlightId ? highlightsById.get(candidate.highlightId) : undefined;
 		const document = documentsById.get(candidate.documentId);
 		const documentTitle = document?.title ?? candidate.documentTitle;
 		const evidenceText = highlight
 			? buildHighlightEvidenceText(highlight)
 			: (candidate.previewText ?? '');
-		const updatedAt = highlight ? newestIsoTimestamp(highlight.updated_at, highlight.annotations) : null;
+		const updatedAt = highlight
+			? newestIsoTimestamp(highlight.updated_at, highlight.annotations)
+			: null;
 
 		return {
 			...candidate,
@@ -381,7 +383,9 @@ async function hydrateDeepSearchCandidates(
 			highlightKind: highlight?.kind ?? candidate.highlightKind,
 			evidenceText,
 			updatedAt,
-			updatedAtMs: updatedAt ? Date.parse(updatedAt) : null
+			updatedAtMs: updatedAt ? Date.parse(updatedAt) : null,
+			hasComment: highlight ? Boolean(highlight.comment?.trim()) : candidate.hasComment === true,
+			hasNote: highlight ? (highlight.annotations ?? []).length > 0 : candidate.hasNote === true
 		};
 	});
 }
@@ -407,9 +411,7 @@ async function fetchHighlightsByIds(
 		throw error;
 	}
 
-	return new Map(
-		((data ?? []) as HighlightHydrationRow[]).map((row) => [row.id, row])
-	);
+	return new Map(((data ?? []) as HighlightHydrationRow[]).map((row) => [row.id, row]));
 }
 
 async function fetchDocumentsByIds(
@@ -454,9 +456,7 @@ async function fetchCurrentSummariesByDocumentIds(
 		throw error;
 	}
 
-	return new Map(
-		((data ?? []) as SummaryHydrationRow[]).map((row) => [row.document_id, row])
-	);
+	return new Map(((data ?? []) as SummaryHydrationRow[]).map((row) => [row.document_id, row]));
 }
 
 function hydratedCandidateToMergeInput(
@@ -473,7 +473,9 @@ function hydratedCandidateToMergeInput(
 		retrievalScore: candidate.retrievalScore,
 		href: candidate.href,
 		previewText: candidate.previewText,
-		updatedAtMs: candidate.updatedAtMs
+		updatedAtMs: candidate.updatedAtMs,
+		hasComment: candidate.hasComment,
+		hasNote: candidate.hasNote
 	};
 }
 
