@@ -1349,6 +1349,7 @@
 											class="fast-search-ai-thinking-card fast-search-deferred-text relative overflow-hidden rounded-lg border border-border/60 bg-card px-3 py-3"
 										>
 											<div class="fast-search-ai-thinking-sheen" aria-hidden="true"></div>
+											<div class="fast-search-ai-thinking-streak" aria-hidden="true"></div>
 											<div class="relative flex gap-3">
 												<StatusIcon
 													class="mt-0.5 size-4 shrink-0 text-primary"
@@ -1927,7 +1928,14 @@
 	}
 
 	.fast-search-shell[data-ai-thinking='true'] {
+		--fast-search-ai-sheen-opacity: 0.14;
 		border-color: transparent;
+		box-shadow:
+			0 4px 6px -1px rgb(0 0 0 / 8%),
+			0 2px 4px -2px rgb(0 0 0 / 6%),
+			0 0 36px color-mix(in oklch, var(--ai-accent-purple) 12%, transparent),
+			0 0 64px color-mix(in oklch, var(--ai-accent-blue) 9%, transparent),
+			0 0 96px color-mix(in oklch, var(--ai-accent-purple) 6%, transparent);
 	}
 
 	.fast-search-shell[data-ai-thinking='true']::after {
@@ -1939,12 +1947,13 @@
 		border-radius: inherit;
 		background: linear-gradient(
 			135deg,
-			color-mix(in oklch, var(--ai-accent-purple) 45%, transparent),
-			color-mix(in oklch, var(--ai-accent-blue) 45%, transparent),
-			color-mix(in oklch, var(--ai-accent-purple) 45%, transparent)
+			color-mix(in oklch, var(--ai-accent-purple) 42%, transparent),
+			color-mix(in oklch, var(--ai-accent-blue) 36%, transparent),
+			color-mix(in oklch, var(--ai-accent-purple) 28%, transparent),
+			color-mix(in oklch, var(--ai-accent-blue) 40%, transparent)
 		);
-		background-size: 200% 200%;
-		animation: fast-search-ai-sheen 10s linear infinite;
+		background-size: 280% 280%;
+		animation: fast-search-ai-sheen 12s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
 		-webkit-mask:
 			linear-gradient(#fff 0 0) content-box,
 			linear-gradient(#fff 0 0);
@@ -1961,22 +1970,62 @@
 		z-index: 1;
 	}
 
+	.fast-search-ai-thinking-card {
+		isolation: isolate;
+	}
+
 	.fast-search-ai-thinking-sheen {
 		position: absolute;
-		inset: -20%;
+		inset: -55%;
+		z-index: 0;
 		background: radial-gradient(
-			ellipse at 30% 20%,
-			color-mix(in oklch, var(--ai-accent-purple) calc(var(--ai-sheen-opacity) * 100%), transparent),
-			transparent 55%
+			ellipse 120% 90% at 25% 15%,
+			color-mix(
+				in oklch,
+				var(--ai-accent-purple) calc(var(--fast-search-ai-sheen-opacity) * 100%),
+				transparent
+			),
+			transparent 78%
 		),
 		radial-gradient(
-			ellipse at 70% 80%,
-			color-mix(in oklch, var(--ai-accent-blue) calc(var(--ai-sheen-opacity) * 100%), transparent),
-			transparent 55%
+			ellipse 110% 95% at 75% 85%,
+			color-mix(
+				in oklch,
+				var(--ai-accent-blue) calc(var(--fast-search-ai-sheen-opacity) * 100%),
+				transparent
+			),
+			transparent 78%
+		),
+		radial-gradient(
+			ellipse 90% 70% at 50% 50%,
+			color-mix(in oklch, var(--ai-accent-purple) 6%, transparent),
+			transparent 82%
 		);
-		background-size: 200% 200%;
-		animation: fast-search-ai-sheen 10s linear infinite;
+		background-size: 240% 240%;
+		animation: fast-search-ai-sheen 12s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
 		pointer-events: none;
+	}
+
+	.fast-search-ai-thinking-streak {
+		position: absolute;
+		inset: 0;
+		z-index: 0;
+		background: linear-gradient(
+			105deg,
+			transparent 22%,
+			color-mix(in oklch, var(--ai-accent-purple) 14%, transparent) 38%,
+			color-mix(in oklch, var(--ai-accent-blue) 18%, transparent) 50%,
+			color-mix(in oklch, var(--ai-accent-purple) 12%, transparent) 62%,
+			transparent 78%
+		);
+		background-size: 280% 100%;
+		animation: fast-search-ai-streak 9s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+		pointer-events: none;
+	}
+
+	.fast-search-ai-thinking-card > .relative {
+		position: relative;
+		z-index: 1;
 	}
 
 	.fast-search-ai-thinking-label {
@@ -2003,14 +2052,25 @@
 	}
 
 	@keyframes fast-search-ai-sheen {
-		0% {
-			background-position: 0% 50%;
+		0%,
+		100% {
+			background-position: 0% 40%;
+		}
+		33% {
+			background-position: 55% 60%;
+		}
+		66% {
+			background-position: 100% 35%;
+		}
+	}
+
+	@keyframes fast-search-ai-streak {
+		0%,
+		100% {
+			background-position: 130% 0%;
 		}
 		50% {
-			background-position: 100% 50%;
-		}
-		100% {
-			background-position: 0% 50%;
+			background-position: -30% 0%;
 		}
 	}
 
@@ -2050,7 +2110,8 @@
 		}
 
 		.fast-search-shell[data-ai-thinking='true']::after,
-		.fast-search-ai-thinking-sheen {
+		.fast-search-ai-thinking-sheen,
+		.fast-search-ai-thinking-streak {
 			animation: none;
 			background-position: 50% 50%;
 		}
